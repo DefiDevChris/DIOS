@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
+import { googleApiJson, googleApiFetch } from '../utils/googleApiClient';
 import { Mail, Search, MessageSquare, Plus, X, Loader2, Send } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 
@@ -74,18 +75,10 @@ export default function Email() {
         const topEmails = emails.slice(0, 10);
         const searchQuery = topEmails.map(email => `from:${email} OR to:${email}`).join(' OR ');
 
-        // 3. Fetch threads from Gmail API
-        const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads?q=${encodeURIComponent(searchQuery)}&maxResults=20`, {
-          headers: {
-            Authorization: `Bearer ${googleAccessToken}`
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch threads');
-        }
-
-        const data = await response.json();
+        // 3. Fetch threads from Gmail API (401 auto-refresh handled by googleApiJson)
+        const data = await googleApiJson<{ threads?: { id: string }[] }>(
+          `https://gmail.googleapis.com/gmail/v1/users/me/threads?q=${encodeURIComponent(searchQuery)}&maxResults=20`
+        );
 
         if (!data.threads) {
           setThreads([]);
@@ -95,10 +88,9 @@ export default function Email() {
 
         // 4. Fetch details for each thread
         const threadDetailsPromises = data.threads.map(async (thread: any) => {
-          const threadRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${thread.id}`, {
-            headers: { Authorization: `Bearer ${googleAccessToken}` }
-          });
-          const threadData = await threadRes.json();
+          const threadData = await googleApiJson<any>(
+            `https://gmail.googleapis.com/gmail/v1/users/me/threads/${thread.id}`
+          );
 
           const messages = threadData.messages.map((msg: any) => {
             const headers = msg.payload.headers;
@@ -166,15 +158,10 @@ export default function Email() {
         .replace(/\//g, '_')
         .replace(/=+$/, '');
 
-      const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      const response = await googleApiFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${googleAccessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          raw: encodedEmail
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw: encodedEmail })
       });
 
       if (!response.ok) {
