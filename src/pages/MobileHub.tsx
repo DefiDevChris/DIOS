@@ -1,26 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Camera, RefreshCw, Upload, X, CheckCircle } from 'lucide-react';
-import { queueFile, processQueue } from '../lib/syncQueue';
+import { queueFile } from '../lib/syncQueue';
+import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 
 export default function MobileHub() {
-  const { user, googleAccessToken } = useAuth();
+  const { user } = useAuth();
+  const { triggerSync } = useBackgroundSync();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [success, setSuccess] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const handleOnline = () => {
-      if (googleAccessToken) {
-        processQueue(googleAccessToken);
-      }
-    };
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
-  }, [googleAccessToken]);
 
   useEffect(() => {
     if (imageFile) {
@@ -66,9 +58,8 @@ export default function MobileHub() {
 
       setSuccess(true);
 
-      if (googleAccessToken) {
-        processQueue(googleAccessToken);
-      }
+      // Trigger background sync immediately if online
+      triggerSync();
 
       setTimeout(() => {
         setImageFile(null);

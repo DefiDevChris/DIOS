@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { BackgroundSyncProvider } from './contexts/BackgroundSyncContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -59,6 +60,7 @@ export default function App() {
 
   return (
     <AuthProvider>
+      <BackgroundSyncProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -110,6 +112,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      </BackgroundSyncProvider>
     </AuthProvider>
   );
 }
