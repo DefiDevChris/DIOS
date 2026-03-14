@@ -5,7 +5,7 @@ import { collection, onSnapshot, getDocs } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, Views } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay } from 'date-fns';
-import enUS from 'date-fns/locale/en-US';
+import { enUS } from 'date-fns/locale/en-US';
 import { Calendar as CalendarIcon, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
