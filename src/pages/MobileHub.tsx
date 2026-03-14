@@ -1,16 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Camera, RefreshCw, Upload, X, CheckCircle } from 'lucide-react';
-import { queueFile } from '../lib/syncQueue';
-import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
+import { db, storage } from '../firebase';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { collection, addDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 
 export default function MobileHub() {
   const { user } = useAuth();
-  const { triggerSync } = useBackgroundSync();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [success, setSuccess] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -48,23 +49,48 @@ export default function MobileHub() {
   };
 
   const handleUpload = async () => {
-    if (!imageFile || !user) return;
+    if (!imageFile || !user || !storage || !db) return;
     setUploading(true);
+    setUploadProgress(0);
 
     try {
-      const year = new Date().getFullYear();
       const fileName = `${Date.now()}_${imageFile.name || 'capture.jpg'}`;
+      const storagePath = `users/${user.uid}/unassigned_uploads/${fileName}`;
+      const storageRef = ref(storage, storagePath);
+      const uploadTask = uploadBytesResumable(storageRef, imageFile);
 
-      await queueFile(imageFile, { fileName, year, uid: user.uid });
+      await new Promise<void>((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+            setUploadProgress(pct);
+          },
+          reject,
+          async () => {
+            try {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              await addDoc(collection(db, `users/${user.uid}/unassigned_uploads`), {
+                fileName,
+                storagePath,
+                downloadURL,
+                fileType: imageFile.type || 'image/jpeg',
+                fileSize: imageFile.size,
+                uploadedAt: new Date().toISOString(),
+              });
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          }
+        );
+      });
 
       setSuccess(true);
-
-      // Trigger background sync immediately if online
-      triggerSync();
-
       setTimeout(() => {
         setImageFile(null);
         setSuccess(false);
+        setUploadProgress(0);
       }, 3000);
     } catch (error) {
       console.error('Upload failed:', error);
@@ -90,7 +116,7 @@ export default function MobileHub() {
             <div className="flex flex-col items-center justify-center text-emerald-600 animate-in fade-in zoom-in duration-300">
               <CheckCircle size={64} className="mb-4" />
               <h2 className="text-xl font-bold">Upload Complete</h2>
-              <p className="text-sm text-stone-500 mt-2 text-center">Saved offline. Will sync when connected.</p>
+              <p className="text-sm text-stone-500 mt-2 text-center">Image saved. Open the Dashboard to process it.</p>
             </div>
           ) : previewUrl ? (
             <div className="w-full h-full flex flex-col relative animate-in fade-in duration-300">
@@ -99,6 +125,20 @@ export default function MobileHub() {
                 alt="Preview"
                 className="w-full h-full object-contain bg-black rounded-2xl"
               />
+              {uploading && (
+                <div className="absolute bottom-4 left-4 right-4 bg-black/60 rounded-xl px-4 py-2">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs text-white/80">Uploading…</span>
+                    <span className="text-xs font-bold text-[#D49A6A]">{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-white/20 rounded-full h-1.5">
+                    <div
+                      className="bg-[#D49A6A] h-1.5 rounded-full transition-all duration-200"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center text-center">
@@ -107,7 +147,7 @@ export default function MobileHub() {
               </div>
               <h2 className="text-xl font-bold text-stone-800 mb-2">Capture Image</h2>
               <p className="text-stone-500 text-sm max-w-[250px]">
-                Take a photo of a receipt or document to upload to the master database.
+                Take a photo of a receipt or document. You can review and process it from the Dashboard.
               </p>
             </div>
           )}
