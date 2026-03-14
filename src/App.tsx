@@ -14,6 +14,7 @@ import Schedule from './pages/Schedule';
 import Expenses from './pages/Expenses';
 import Email from './pages/Email';
 import SetupWizard from './components/SetupWizard';
+import ReceiptScanner from './components/ReceiptScanner';
 import { configStore } from './lib/configStore';
 import { useState, useEffect } from 'react';
 
@@ -60,6 +61,14 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route
+            path="/test-scanner"
+            element={
+              <div className="p-4 bg-stone-100 min-h-screen">
+                <ReceiptScanner />
+              </div>
+            }
+          />
           <Route
             path="/mobile-hub"
             element={
