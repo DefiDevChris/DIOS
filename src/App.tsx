@@ -35,8 +35,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <div className="min-h-screen flex items-center justify-center bg-[#F9F8F6]">Loading...</div>;
   }
   
-  // MOCK FOR DEVELOPMENT
-  if (!user && window.location.hostname !== 'localhost') {
+  if (!user) {
     return <Navigate to="/login" replace />;
   }
   
