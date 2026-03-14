@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { 
   ArrowLeft, Calendar, Clock, FileText, Receipt, CheckCircle, 
   MapPin, Building2, Save, Car
 } from 'lucide-react';
+import { generateInvoicePdf, InvoiceData } from '../lib/pdfGenerator';
+import { format } from 'date-fns';
 
 interface Inspection {
   id: string;
@@ -218,6 +220,133 @@ export default function InspectionProfile() {
     }
 
     return total;
+  };
+
+  const handleGenerateInvoice = async () => {
+    if (!user || !agency || !operation || !inspection) return;
+
+    setSaving(true);
+
+    try {
+      const invoiceTotal = calculateInvoiceTotal();
+      const calculatedDriveTime = isBundled && totalTripStops > 0 ? Math.round(totalTripDriveTime) / totalTripStops : totalTripDriveTime;
+
+      const invoiceData: InvoiceData = {
+        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        date: format(new Date(), 'MMM d, yyyy'),
+        operationName: operation.name,
+        operationAddress: operation.address,
+        agencyName: agency.name,
+        baseAmount: agency.flatRateBaseAmount,
+        baseHours: agency.flatRateIncludedHours,
+        additionalHours: additionalHoursLog,
+        additionalHourlyRate: agency.additionalHourlyRate,
+        driveTime: calculatedDriveTime,
+        travelRate: agency.travelTimeHourlyRate || agency.additionalHourlyRate,
+        milesDriven: milesDriven,
+        mileageRate: agency.mileageRate,
+        mealsAndExpenses: mealsAndExpenses,
+        perDiemDays: perDiemDays,
+        perDiemRate: agency.perDiemRate || 0,
+        customLineItemName: customLineItemName,
+        customLineItemAmount: customLineItemAmount,
+        totalAmount: invoiceTotal,
+        notes: invoiceNotes
+      };
+
+      const pdfBlob = await generateInvoicePdf(invoiceData);
+      const fileName = `Invoice_${operation.name}_${format(new Date(inspection.date), 'yyyy-MM-dd')}.pdf`;
+
+      // Attempt to save using the File System Access API
+      if ('showSaveFilePicker' in window) {
+        try {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{
+              description: 'PDF Document',
+              accept: { 'application/pdf': ['.pdf'] },
+            }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(pdfBlob);
+          await writable.close();
+        } catch (err: any) {
+          if (err.name !== 'AbortError') {
+            console.error('File System Access API error:', err);
+            // Fallback to standard download
+            const url = URL.createObjectURL(pdfBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
+        }
+      } else {
+        // Fallback to standard download
+        const url = URL.createObjectURL(pdfBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      // Save to Firestore
+      // 3. Attempt Google Drive Upload (Silently fail if dummy or unauthorized)
+      try {
+        const token = localStorage.getItem('googleAccessToken');
+        if (token && token !== 'dummy') {
+          // Construct the multipart request
+          const metadata = {
+            name: fileName,
+            mimeType: 'application/pdf',
+            parents: ['appDataFolder'], // We don't have the explicit Reports folder ID here without more queries, fallback to appData or root
+          };
+
+          const form = new FormData();
+          form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+          form.append('file', pdfBlob);
+
+          await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            body: form
+          });
+          console.log("Successfully uploaded to Google Drive");
+        }
+      } catch (err) {
+        console.warn("Google Drive upload skipped or failed:", err);
+      }
+
+      // 4. Save to Firestore
+      const newInvoiceRef = doc(collection(db, `users/${user.uid}/invoices`));
+      await setDoc(newInvoiceRef, {
+        inspectionId: inspection.id,
+        operationId: operation.id,
+        operationName: operation.name,
+        agencyId: agency.id,
+        agencyName: agency.name,
+        date: new Date().toISOString(),
+        inspectionDate: inspection.date,
+        totalAmount: invoiceTotal,
+        status: 'Unpaid',
+        createdAt: serverTimestamp(),
+      });
+
+      alert('Invoice generated successfully!');
+    } catch (error) {
+      console.error('Error generating invoice:', error);
+      alert('Failed to generate invoice.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {
@@ -564,8 +693,12 @@ export default function InspectionProfile() {
               <div className="text-sm text-stone-400">Agency billing info not available.</div>
             )}
             
-            <button className="w-full mt-6 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2">
-              Generate Invoice
+            <button
+              onClick={handleGenerateInvoice}
+              disabled={saving || !agency}
+              className="w-full mt-6 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {saving ? 'Generating...' : 'Generate Invoice'}
             </button>
           </div>
 

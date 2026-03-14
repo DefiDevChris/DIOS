@@ -16,6 +16,8 @@ import Routing from './pages/Routing';
 import NotesTasks from './pages/NotesTasks';
 import MobileHub from './pages/MobileHub';
 import Schedule from './pages/Schedule';
+import Invoices from './pages/Invoices';
+import Reports from './pages/Reports';
 import SetupWizard from './components/SetupWizard';
 import { configStore } from './lib/configStore';
 import { useState, useEffect } from 'react';
@@ -83,13 +85,13 @@ export default function App() {
             <Route path="operations/:id" element={<OperationProfile />} />
             <Route path="inspections" element={<Placeholder title="Inspections" />} />
             <Route path="inspections/:id" element={<InspectionProfile />} />
-            <Route path="invoices" element={<Placeholder title="Invoices" />} />
+            <Route path="invoices" element={<Invoices />} />
             <Route path="schedule" element={<Schedule />} />
             
             <Route path="notes" element={<NotesTasks />} />
             <Route path="email" element={<Placeholder title="Email" />} />
             <Route path="routing" element={<Routing />} />
-            <Route path="reports" element={<Placeholder title="Reports" />} />
+            <Route path="reports" element={<Reports />} />
             
             <Route path="insights" element={<Placeholder title="Insights" />} />
             

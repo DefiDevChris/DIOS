@@ -25,6 +25,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isInitialized || !auth) {
+      // If Firebase fails to initialize, check if it's the dummy local demo
+      const savedConfig = localStorage.getItem('dois_studio_config');
+      if (savedConfig) {
+        const parsed = JSON.parse(savedConfig);
+        if (parsed.firebaseConfig?.apiKey === 'dummy') {
+          console.warn("Local Demo Mode: Bypassing Auth");
+          setUser({ uid: 'local-demo-user', email: 'demo@example.com', displayName: 'Demo User' } as User);
+          setLoading(false);
+          return;
+        }
+      }
       setLoading(false);
       return;
     }
@@ -38,7 +49,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithGoogle = async () => {
-    if (!auth) throw new Error('Firebase Auth not initialized');
+    if (!auth) {
+       const savedConfig = localStorage.getItem('dois_studio_config');
+       if (savedConfig && JSON.parse(savedConfig).firebaseConfig?.apiKey === 'dummy') {
+           setUser({ uid: 'local-demo-user', email: 'demo@example.com', displayName: 'Demo User' } as User);
+           return;
+       }
+       throw new Error('Firebase Auth not initialized');
+    }
     try {
       const provider = new GoogleAuthProvider();
       // Add scopes for Drive, Calendar, and Gmail

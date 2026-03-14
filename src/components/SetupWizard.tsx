@@ -78,6 +78,23 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     }
   };
 
+  const skipSetup = () => {
+    // Generate some dummy config to bypass the setup block and let the UI load for local dev / testing
+    const dummyConfig: AppConfig = {
+      firebaseConfig: {
+        apiKey: "dummy",
+        authDomain: "dummy",
+        projectId: "dummy",
+        storageBucket: "dummy",
+        messagingSenderId: "dummy",
+        appId: "dummy"
+      },
+      googleMapsApiKey: "dummy"
+    };
+    configStore.saveConfig(dummyConfig);
+    onComplete();
+  };
+
   return (
     <div className="min-h-screen bg-[#F9F8F6] flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-2xl bg-white rounded-3xl overflow-hidden shadow-2xl border border-stone-100 flex flex-col">
@@ -141,7 +158,13 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 </div>
               </div>
 
-              <div className="flex justify-end pt-4">
+              <div className="flex justify-between pt-4 border-t border-stone-100">
+                <button
+                  onClick={skipSetup}
+                  className="px-4 py-2.5 text-sm font-medium text-stone-500 hover:text-stone-700 transition-colors"
+                >
+                  Skip for Now (Local Demo)
+                </button>
                 <button
                   onClick={() => setStep(2)}
                   disabled={!config.firebaseConfig.apiKey || !config.firebaseConfig.projectId}
