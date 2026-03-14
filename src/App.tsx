@@ -14,6 +14,7 @@ import OperationProfile from './pages/OperationProfile';
 import InspectionProfile from './pages/InspectionProfile';
 import Routing from './pages/Routing';
 import NotesTasks from './pages/NotesTasks';
+import Reports from './pages/Reports';
 
 // Placeholder components for new routes
 const Placeholder = ({ title }: { title: string }) => (
@@ -62,7 +63,7 @@ export default function App() {
             <Route path="notes" element={<NotesTasks />} />
             <Route path="email" element={<Placeholder title="Email" />} />
             <Route path="routing" element={<Routing />} />
-            <Route path="reports" element={<Placeholder title="Reports" />} />
+            <Route path="reports" element={<Reports />} />
             
             <Route path="insights" element={<Placeholder title="Insights" />} />
             
