@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { createWorker } from 'tesseract.js';
 import { useAuth } from '../contexts/AuthContext';
-import { Camera, RefreshCw, Upload, X, CheckCircle, FileText, ScanLine } from 'lucide-react';
-import { queueFile, processQueue } from '../lib/syncQueue';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { Camera, RefreshCw, Upload, X, CheckCircle, FileText } from 'lucide-react';
+import { queueFile } from '../lib/syncQueue';
+import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
+import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
 interface ReceiptScannerProps {
@@ -76,7 +77,8 @@ function parseOcrText(text: string): { date?: string; amount?: string; vendor?: 
 }
 
 export default function ReceiptScanner({ onClose, onSuccess }: ReceiptScannerProps) {
-  const { user, googleAccessToken } = useAuth();
+  const { user } = useAuth();
+  const { triggerSync } = useBackgroundSync();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -203,12 +205,33 @@ export default function ReceiptScanner({ onClose, onSuccess }: ReceiptScannerPro
         createdAt: serverTimestamp(),
       });
 
-      setSuccess(true);
+      if (imageFile) {
+        const year = new Date(date).getFullYear();
+        fileName = `${Date.now()}_${imageFile.name || 'receipt.jpg'}`;
 
+        // Queue the file for background upload. The sync processor will
+        // upload to Drive and write the real driveFileId back to this doc.
+        await queueFile(imageFile, {
+          fileName,
+          year,
+          uid: user.uid,
+          firestoreDocPath: `users/${user.uid}/expenses/${expenseDoc.id}`,
+          firestoreField: 'receiptFileId',
+        });
+
+        // Update the expense doc with the filename reference
+        await updateDoc(doc(db, `users/${user.uid}/expenses/${expenseDoc.id}`), {
+          receiptFileName: fileName,
+        });
       // Attempt to flush the sync queue immediately if we're online
       if (googleAccessToken) {
         processQueue(googleAccessToken);
       }
+
+      setSuccess(true);
+
+      // Trigger background sync immediately if online
+      triggerSync();
 
       setTimeout(() => {
         onSuccess();
