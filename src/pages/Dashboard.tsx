@@ -1,5 +1,6 @@
 import { ArrowRight, Calendar, CheckSquare, CloudUpload, Edit3, Check } from 'lucide-react';
 import { format } from 'date-fns';
+import TasksWidget from '../components/TasksWidget';
 
 export default function Dashboard() {
   const today = new Date();
@@ -60,19 +61,8 @@ export default function Dashboard() {
         </div>
 
         {/* Tasks & Follow-ups (Spans 6 cols) */}
-        <div className="col-span-12 lg:col-span-6 bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex flex-col min-h-[280px]">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-base font-bold text-stone-900">Tasks & Follow-ups</h2>
-            <button className="text-stone-400 hover:text-[#D49A6A] transition-colors">
-              <ArrowRight size={18} />
-            </button>
-          </div>
-          <div className="flex-1 flex flex-col items-center justify-center text-stone-400">
-            <div className="mb-3">
-              <CheckSquare size={32} className="text-stone-300" strokeWidth={1.5} />
-            </div>
-            <p className="text-sm font-medium">All caught up!</p>
-          </div>
+        <div className="col-span-12 lg:col-span-6 min-h-[280px]">
+          <TasksWidget />
         </div>
 
         {/* Uploads (Spans 6 cols) */}

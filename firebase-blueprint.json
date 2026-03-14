@@ -11,7 +11,9 @@
         "flatRateBaseAmount": { "type": "number" },
         "flatRateIncludedHours": { "type": "number" },
         "additionalHourlyRate": { "type": "number" },
-        "mileageRate": { "type": "number" }
+        "mileageRate": { "type": "number" },
+        "travelTimeHourlyRate": { "type": "number" },
+        "perDiemRate": { "type": "number" }
       },
       "required": ["id", "name", "billingAddress", "flatRateBaseAmount", "flatRateIncludedHours", "additionalHourlyRate", "mileageRate"]
     },
@@ -24,12 +26,39 @@
         "name": { "type": "string" },
         "agencyId": { "type": "string", "description": "Reference to an Agency" },
         "address": { "type": "string" },
-        "lat": { "type": "number" },
-        "lon": { "type": "number" },
-        "contactEmail": { "type": "string", "format": "email" },
-        "driveFolderId": { "type": "string" }
+        "contactName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "notes": { "type": "string" },
+        "quickNote": { "type": "string" },
+        "inspectionStatus": { "type": "string", "enum": ["prep", "scheduled", "inspected", "report", "invoiced", "paid"] }
       },
-      "required": ["id", "name", "agencyId", "address", "lat", "lon", "contactEmail", "driveFolderId"]
+      "required": ["id", "name", "agencyId", "address", "contactName", "phone", "email", "status"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "Documents related to an operation.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "size": { "type": "number" },
+        "type": { "type": "string" },
+        "uploadedAt": { "type": "string", "format": "date-time" },
+        "url": { "type": "string" }
+      },
+      "required": ["name", "size", "type", "uploadedAt", "url"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "Activity log for an operation.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "description", "timestamp"]
     },
     "Inspection": {
       "title": "Inspection",
@@ -43,6 +72,17 @@
         "baseHoursLog": { "type": "number" },
         "additionalHoursLog": { "type": "number" },
         "milesDriven": { "type": "number" },
+        "notes": { "type": "string" },
+        "isBundled": { "type": "boolean" },
+        "totalTripDriveTime": { "type": "number" },
+        "totalTripStops": { "type": "number" },
+        "sharedDriveTime": { "type": "number" },
+        "mealsAndExpenses": { "type": "number" },
+        "perDiemDays": { "type": "number" },
+        "customLineItemName": { "type": "string" },
+        "customLineItemAmount": { "type": "number" },
+        "invoiceNotes": { "type": "string" },
+        "invoiceExceptions": { "type": "string" },
         "bundleId": { "type": "string", "description": "Optional ID grouping multiple inspections" }
       },
       "required": ["id", "operationId", "date", "status", "baseHoursLog", "additionalHoursLog", "milesDriven"]
@@ -60,6 +100,22 @@
         "status": { "type": "string", "enum": ["Paid", "Unpaid"] }
       },
       "required": ["id", "inspectionId", "agencyId", "totalAmount", "pdfDriveId", "status"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Tasks or notes, potentially tagged to an operation or inspection.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "operationId": { "type": "string" },
+        "inspectionId": { "type": "string" }
+      },
+      "required": ["id", "title", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -71,6 +127,14 @@
       "schema": { "$ref": "#/entities/Operation" },
       "description": "User's operations"
     },
+    "/users/{userId}/operations/{operationId}/documents/{documentId}": {
+      "schema": { "$ref": "#/entities/Document" },
+      "description": "Documents for a specific operation"
+    },
+    "/users/{userId}/operations/{operationId}/activities/{activityId}": {
+      "schema": { "$ref": "#/entities/Activity" },
+      "description": "Activities for a specific operation"
+    },
     "/users/{userId}/inspections/{inspectionId}": {
       "schema": { "$ref": "#/entities/Inspection" },
       "description": "User's inspections"
@@ -78,6 +142,10 @@
     "/users/{userId}/invoices/{invoiceId}": {
       "schema": { "$ref": "#/entities/Invoice" },
       "description": "User's invoices"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "User's tasks"
     }
   }
 }

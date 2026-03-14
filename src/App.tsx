@@ -10,7 +10,10 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import Operations from './pages/Operations';
+import OperationProfile from './pages/OperationProfile';
+import InspectionProfile from './pages/InspectionProfile';
 import Routing from './pages/Routing';
+import NotesTasks from './pages/NotesTasks';
 
 // Placeholder components for new routes
 const Placeholder = ({ title }: { title: string }) => (
@@ -50,11 +53,13 @@ export default function App() {
           >
             <Route index element={<Dashboard />} />
             <Route path="operations" element={<Operations />} />
+            <Route path="operations/:id" element={<OperationProfile />} />
             <Route path="inspections" element={<Placeholder title="Inspections" />} />
+            <Route path="inspections/:id" element={<InspectionProfile />} />
             <Route path="invoices" element={<Placeholder title="Invoices" />} />
             <Route path="schedule" element={<Placeholder title="Schedule" />} />
             
-            <Route path="notes" element={<Placeholder title="Notes & Tasks" />} />
+            <Route path="notes" element={<NotesTasks />} />
             <Route path="email" element={<Placeholder title="Email" />} />
             <Route path="routing" element={<Routing />} />
             <Route path="reports" element={<Placeholder title="Reports" />} />

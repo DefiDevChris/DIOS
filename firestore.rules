@@ -24,10 +24,29 @@ service cloud.firestore {
     //   - name: string (required)
     //   - agencyId: string (required)
     //   - address: string (required)
-    //   - lat: number (required)
-    //   - lon: number (required)
-    //   - contactEmail: string (required)
-    //   - driveFolderId: string (required)
+    //   - contactName: string (required)
+    //   - phone: string (required)
+    //   - email: string (required)
+    //   - status: string (required)
+    //   - notes: string (optional)
+    //   - quickNote: string (optional)
+    //   - inspectionStatus: string (optional)
+    //
+    // Collection: users/{userId}/operations/{operationId}/documents
+    // Document ID: {documentId}
+    // Fields:
+    //   - name: string (required)
+    //   - size: number (required)
+    //   - type: string (required)
+    //   - uploadedAt: string (required)
+    //   - url: string (required)
+    //
+    // Collection: users/{userId}/operations/{operationId}/activities
+    // Document ID: {activityId}
+    // Fields:
+    //   - type: string (required)
+    //   - description: string (required)
+    //   - timestamp: string (required)
     //
     // Collection: users/{userId}/inspections
     // Document ID: {inspectionId}
@@ -73,30 +92,51 @@ service cloud.firestore {
 
     // Domain Validators
     function isValidAgency(data) {
-      return hasOnlyAllowedFields(['id', 'name', 'billingAddress', 'flatRateBaseAmount', 'flatRateIncludedHours', 'additionalHourlyRate', 'mileageRate']) &&
+      return hasOnlyAllowedFields(['id', 'name', 'billingAddress', 'flatRateBaseAmount', 'flatRateIncludedHours', 'additionalHourlyRate', 'mileageRate', 'travelTimeHourlyRate', 'perDiemRate']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
              data.billingAddress is string && data.billingAddress.size() > 0 && data.billingAddress.size() < 500 &&
              data.flatRateBaseAmount is number && data.flatRateBaseAmount >= 0 &&
              data.flatRateIncludedHours is number && data.flatRateIncludedHours >= 0 &&
              data.additionalHourlyRate is number && data.additionalHourlyRate >= 0 &&
-             data.mileageRate is number && data.mileageRate >= 0;
+             data.mileageRate is number && data.mileageRate >= 0 &&
+             (!('travelTimeHourlyRate' in data) || (data.travelTimeHourlyRate is number && data.travelTimeHourlyRate >= 0)) &&
+             (!('perDiemRate' in data) || (data.perDiemRate is number && data.perDiemRate >= 0));
     }
 
     function isValidOperation(data) {
-      return hasOnlyAllowedFields(['id', 'name', 'agencyId', 'address', 'lat', 'lon', 'contactEmail', 'driveFolderId']) &&
+      return hasOnlyAllowedFields(['id', 'name', 'agencyId', 'address', 'contactName', 'phone', 'email', 'status', 'notes', 'quickNote', 'inspectionStatus']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
              data.agencyId is string && data.agencyId.size() > 0 && data.agencyId.size() < 100 &&
-             data.address is string && data.address.size() > 0 && data.address.size() < 500 &&
-             data.lat is number &&
-             data.lon is number &&
-             isValidEmail(data.contactEmail) && data.contactEmail.size() < 200 &&
-             data.driveFolderId is string && data.driveFolderId.size() > 0 && data.driveFolderId.size() < 200;
+             data.address is string && data.address.size() < 500 &&
+             data.contactName is string && data.contactName.size() < 200 &&
+             data.phone is string && data.phone.size() < 50 &&
+             (data.email == '' || (isValidEmail(data.email) && data.email.size() < 200)) &&
+             data.status in ['active', 'inactive'] &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 2000)) &&
+             (!('quickNote' in data) || (data.quickNote is string && data.quickNote.size() < 2000)) &&
+             (!('inspectionStatus' in data) || (data.inspectionStatus in ['prep', 'scheduled', 'inspected', 'report', 'invoiced', 'paid']));
+    }
+
+    function isValidDocument(data) {
+      return hasOnlyAllowedFields(['name', 'size', 'type', 'uploadedAt', 'url']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 500 &&
+             data.size is number && data.size >= 0 &&
+             data.type is string && data.type.size() > 0 && data.type.size() < 100 &&
+             data.uploadedAt is string && data.uploadedAt.size() > 0 && data.uploadedAt.size() < 100 &&
+             data.url is string && data.url.size() > 0 && data.url.size() < 1000;
+    }
+
+    function isValidActivity(data) {
+      return hasOnlyAllowedFields(['type', 'description', 'timestamp']) &&
+             data.type is string && data.type.size() > 0 && data.type.size() < 100 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 1000 &&
+             data.timestamp is string && data.timestamp.size() > 0 && data.timestamp.size() < 100;
     }
 
     function isValidInspection(data) {
-      return hasOnlyAllowedFields(['id', 'operationId', 'date', 'status', 'baseHoursLog', 'additionalHoursLog', 'milesDriven', 'bundleId']) &&
+      return hasOnlyAllowedFields(['id', 'operationId', 'date', 'status', 'baseHoursLog', 'additionalHoursLog', 'milesDriven', 'bundleId', 'notes', 'isBundled', 'totalTripDriveTime', 'totalTripStops', 'sharedDriveTime', 'mealsAndExpenses', 'perDiemDays', 'customLineItemName', 'customLineItemAmount', 'invoiceNotes', 'invoiceExceptions']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
              data.operationId is string && data.operationId.size() > 0 && data.operationId.size() < 100 &&
              data.date is string && data.date.size() > 0 && data.date.size() < 100 &&
@@ -104,7 +144,18 @@ service cloud.firestore {
              data.baseHoursLog is number && data.baseHoursLog >= 0 &&
              data.additionalHoursLog is number && data.additionalHoursLog >= 0 &&
              data.milesDriven is number && data.milesDriven >= 0 &&
-             (!('bundleId' in data) || (data.bundleId is string && data.bundleId.size() < 100));
+             (!('bundleId' in data) || (data.bundleId is string && data.bundleId.size() < 100)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 5000)) &&
+             (!('isBundled' in data) || data.isBundled is bool) &&
+             (!('totalTripDriveTime' in data) || (data.totalTripDriveTime is number && data.totalTripDriveTime >= 0)) &&
+             (!('totalTripStops' in data) || (data.totalTripStops is number && data.totalTripStops >= 0)) &&
+             (!('sharedDriveTime' in data) || (data.sharedDriveTime is number && data.sharedDriveTime >= 0)) &&
+             (!('mealsAndExpenses' in data) || (data.mealsAndExpenses is number && data.mealsAndExpenses >= 0)) &&
+             (!('perDiemDays' in data) || (data.perDiemDays is number && data.perDiemDays >= 0)) &&
+             (!('customLineItemName' in data) || (data.customLineItemName is string && data.customLineItemName.size() < 200)) &&
+             (!('customLineItemAmount' in data) || (data.customLineItemAmount is number)) &&
+             (!('invoiceNotes' in data) || (data.invoiceNotes is string && data.invoiceNotes.size() < 5000)) &&
+             (!('invoiceExceptions' in data) || (data.invoiceExceptions is string && data.invoiceExceptions.size() < 5000));
     }
 
     function isValidInvoice(data) {
@@ -115,6 +166,18 @@ service cloud.firestore {
              data.totalAmount is number && data.totalAmount >= 0 &&
              data.pdfDriveId is string && data.pdfDriveId.size() > 0 && data.pdfDriveId.size() < 200 &&
              data.status in ['Paid', 'Unpaid'];
+    }
+
+    function isValidTask(data) {
+      return hasOnlyAllowedFields(['id', 'title', 'description', 'status', 'createdAt', 'dueDate', 'operationId', 'inspectionId']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 500 &&
+             (!('description' in data) || (data.description is string && data.description.size() < 5000)) &&
+             data.status in ['pending', 'completed'] &&
+             data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() < 100 &&
+             (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() < 100)) &&
+             (!('operationId' in data) || (data.operationId is string && data.operationId.size() < 100)) &&
+             (!('inspectionId' in data) || (data.inspectionId is string && data.inspectionId.size() < 100));
     }
 
     match /users/{userId} {
@@ -133,6 +196,20 @@ service cloud.firestore {
         allow create: if isOwner(userId) && isValidOperation(request.resource.data);
         allow update: if isOwner(userId) && isValidOperation(request.resource.data);
         allow delete: if isOwner(userId);
+
+        match /documents/{documentId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId) && isValidDocument(request.resource.data);
+          allow update: if isOwner(userId) && isValidDocument(request.resource.data);
+          allow delete: if isOwner(userId);
+        }
+
+        match /activities/{activityId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId) && isValidActivity(request.resource.data);
+          allow update: if isOwner(userId) && isValidActivity(request.resource.data);
+          allow delete: if isOwner(userId);
+        }
       }
 
       match /inspections/{inspectionId} {
@@ -146,6 +223,13 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if isOwner(userId) && isValidInvoice(request.resource.data);
         allow update: if isOwner(userId) && isValidInvoice(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /tasks/{taskId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidTask(request.resource.data);
+        allow update: if isOwner(userId) && isValidTask(request.resource.data);
         allow delete: if isOwner(userId);
       }
     }
