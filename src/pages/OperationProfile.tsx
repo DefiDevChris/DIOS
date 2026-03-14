@@ -7,6 +7,7 @@ import { ref } from 'firebase/storage';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { configStore } from '../lib/configStore';
 import { uploadToDrive } from '../lib/driveSync';
+import { googleApiJson } from '../utils/googleApiClient';
 import { getStoredLocalFolder, writeLocalFile } from '../lib/localFsSync';
 import {
   ArrowLeft, Check, Search, FileText, Receipt, CheckCircle,
@@ -216,27 +217,32 @@ export default function OperationProfile() {
     }
   };
 
+  // Auto-load Gmail threads when the panel is opened
+  useEffect(() => {
+    if (showGmailPanel && operation?.email && googleAccessToken) {
+      loadGmailThreads(operation.email);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGmailPanel, operation?.email, googleAccessToken]);
+
   // --- Gmail CRM ---
 
-  const loadGmailThreads = async () => {
-    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
-    if (!token || token === 'dummy') {
+  const loadGmailThreads = async (operatorEmail?: string) => {
+    const email = operatorEmail || operation?.email;
+    if (!googleAccessToken) {
       Swal.fire({ text: 'Please sign in with Google to view Gmail threads.', icon: 'info' });
       return;
     }
-    if (!operation?.email) {
+    if (!email) {
       Swal.fire({ text: 'No contact email set for this operation.', icon: 'info' });
       return;
     }
     setLoadingThreads(true);
     try {
-      const q = `to:${operation.email} OR from:${operation.email}`;
-      const res = await fetch(
-        `https://www.googleapis.com/gmail/v1/users/me/threads?q=${encodeURIComponent(q)}&maxResults=10`,
-        { headers: { Authorization: `Bearer ${token}` } }
+      const q = `from:${email} OR to:${email}`;
+      const data = await googleApiJson<{ threads?: { id: string; snippet: string }[] }>(
+        `https://gmail.googleapis.com/gmail/v1/users/me/threads?q=${encodeURIComponent(q)}&maxResults=10`
       );
-      if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
-      const data = await res.json();
       setGmailThreads(data.threads || []);
     } catch (error: any) {
       console.error('Failed to fetch Gmail threads:', error);

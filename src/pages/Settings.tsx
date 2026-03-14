@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
-import { Plus, Edit2, Trash2, Building2, DollarSign, Clock, MapPin, X, Car, Shield, FolderSync, Download, FolderOpen } from 'lucide-react';
+import { Plus, Edit2, Trash2, Building2, DollarSign, Clock, MapPin, X, Car, Shield, FolderSync, Download, FolderOpen, Mail, Trash } from 'lucide-react';
 import { configStore } from '../lib/configStore';
 import { requestLocalFolder, getStoredLocalFolder } from '../lib/localFsSync';
 import Swal from 'sweetalert2';
@@ -44,6 +44,10 @@ export default function Settings() {
 
   const [localFolderLinked, setLocalFolderLinked] = useState(false);
 
+  // Whitelisted email state
+  const [whitelistedEmails, setWhitelistedEmails] = useState<string[]>([]);
+  const [newEmailInput, setNewEmailInput] = useState('');
+
   useEffect(() => {
     getStoredLocalFolder().then(handle => {
       if (handle) {
@@ -51,6 +55,19 @@ export default function Settings() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const userDocRef = doc(db, `users/${user.uid}`);
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setWhitelistedEmails(docSnap.data().whitelistedEmails || []);
+      } else {
+        setWhitelistedEmails([]);
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -195,6 +212,28 @@ export default function Settings() {
     const handle = await requestLocalFolder();
     if (handle) {
       setLocalFolderLinked(true);
+    }
+  };
+
+  const handleAddWhitelistedEmail = async () => {
+    const email = newEmailInput.trim().toLowerCase();
+    if (!user || !email || whitelistedEmails.includes(email)) return;
+    const userDocRef = doc(db, `users/${user.uid}`);
+    try {
+      await setDoc(userDocRef, { whitelistedEmails: [...whitelistedEmails, email] }, { merge: true });
+      setNewEmailInput('');
+    } catch (error) {
+      console.error('Failed to add whitelisted email:', error);
+    }
+  };
+
+  const handleDeleteWhitelistedEmail = async (email: string) => {
+    if (!user) return;
+    const userDocRef = doc(db, `users/${user.uid}`);
+    try {
+      await setDoc(userDocRef, { whitelistedEmails: whitelistedEmails.filter(e => e !== email) }, { merge: true });
+    } catch (error) {
+      console.error('Failed to remove whitelisted email:', error);
     }
   };
 
@@ -348,6 +387,61 @@ export default function Settings() {
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden mt-8">
+        <div className="px-6 py-5 border-b border-stone-100 flex items-center gap-3 bg-stone-50/50">
+          <Mail className="text-[#D49A6A]" size={20} />
+          <h2 className="text-lg font-bold text-stone-900">Email Settings</h2>
+        </div>
+
+        <div className="p-6">
+          <div className="mb-4">
+            <h3 className="text-base font-bold text-stone-900">Whitelisted Email Addresses</h3>
+            <p className="text-sm text-stone-600 mt-1 max-w-xl">
+              Add custom email addresses to always include in your Gmail inbox view. All operation and agency emails are included automatically.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3 mb-4">
+            <input
+              type="email"
+              value={newEmailInput}
+              onChange={(e) => setNewEmailInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddWhitelistedEmail(); } }}
+              placeholder="contact@example.com"
+              className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+            />
+            <button
+              onClick={handleAddWhitelistedEmail}
+              disabled={!newEmailInput.trim()}
+              className="px-4 py-2.5 bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Plus size={16} /> Add
+            </button>
+          </div>
+
+          {whitelistedEmails.length === 0 ? (
+            <div className="text-sm text-stone-400 py-4 text-center border border-dashed border-stone-200 rounded-xl">
+              No custom emails added yet.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {whitelistedEmails.map((email) => (
+                <div key={email} className="flex items-center justify-between px-4 py-2.5 bg-stone-50 border border-stone-100 rounded-xl">
+                  <span className="text-sm text-stone-700 font-medium">{email}</span>
+                  <button
+                    onClick={() => handleDeleteWhitelistedEmail(email)}
+                    className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Remove"
+                  >
+                    <Trash size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
