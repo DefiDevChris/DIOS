@@ -1,0 +1,5 @@
+{
+  "name": "DOIS Studio",
+  "description": "A multi-tenant SaaS application for field inspectors. It is a highly customized CRM, ERP, and routing dashboard.",
+  "requestFramePermissions": []
+}

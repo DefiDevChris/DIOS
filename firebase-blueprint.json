@@ -1,0 +1,83 @@
+{
+  "entities": {
+    "Agency": {
+      "title": "Agency",
+      "description": "Configurable billing entities.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "billingAddress": { "type": "string" },
+        "flatRateBaseAmount": { "type": "number" },
+        "flatRateIncludedHours": { "type": "number" },
+        "additionalHourlyRate": { "type": "number" },
+        "mileageRate": { "type": "number" }
+      },
+      "required": ["id", "name", "billingAddress", "flatRateBaseAmount", "flatRateIncludedHours", "additionalHourlyRate", "mileageRate"]
+    },
+    "Operation": {
+      "title": "Operation",
+      "description": "The farms/businesses being inspected.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "agencyId": { "type": "string", "description": "Reference to an Agency" },
+        "address": { "type": "string" },
+        "lat": { "type": "number" },
+        "lon": { "type": "number" },
+        "contactEmail": { "type": "string", "format": "email" },
+        "driveFolderId": { "type": "string" }
+      },
+      "required": ["id", "name", "agencyId", "address", "lat", "lon", "contactEmail", "driveFolderId"]
+    },
+    "Inspection": {
+      "title": "Inspection",
+      "description": "The actual jobs.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "operationId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["Scheduled", "In Progress", "Completed", "Cancelled"] },
+        "baseHoursLog": { "type": "number" },
+        "additionalHoursLog": { "type": "number" },
+        "milesDriven": { "type": "number" },
+        "bundleId": { "type": "string", "description": "Optional ID grouping multiple inspections" }
+      },
+      "required": ["id", "operationId", "date", "status", "baseHoursLog", "additionalHoursLog", "milesDriven"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Generated bills.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "inspectionId": { "type": "string" },
+        "agencyId": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "pdfDriveId": { "type": "string" },
+        "status": { "type": "string", "enum": ["Paid", "Unpaid"] }
+      },
+      "required": ["id", "inspectionId", "agencyId", "totalAmount", "pdfDriveId", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/agencies/{agencyId}": {
+      "schema": { "$ref": "#/entities/Agency" },
+      "description": "User's agencies"
+    },
+    "/users/{userId}/operations/{operationId}": {
+      "schema": { "$ref": "#/entities/Operation" },
+      "description": "User's operations"
+    },
+    "/users/{userId}/inspections/{inspectionId}": {
+      "schema": { "$ref": "#/entities/Inspection" },
+      "description": "User's inspections"
+    },
+    "/users/{userId}/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/Invoice" },
+      "description": "User's invoices"
+    }
+  }
+}

@@ -1,0 +1,153 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users/{userId}/agencies
+    // Document ID: {agencyId}
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - billingAddress: string (required)
+    //   - flatRateBaseAmount: number (required)
+    //   - flatRateIncludedHours: number (required)
+    //   - additionalHourlyRate: number (required)
+    //   - mileageRate: number (required)
+    //
+    // Collection: users/{userId}/operations
+    // Document ID: {operationId}
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - agencyId: string (required)
+    //   - address: string (required)
+    //   - lat: number (required)
+    //   - lon: number (required)
+    //   - contactEmail: string (required)
+    //   - driveFolderId: string (required)
+    //
+    // Collection: users/{userId}/inspections
+    // Document ID: {inspectionId}
+    // Fields:
+    //   - id: string (required)
+    //   - operationId: string (required)
+    //   - date: string (required)
+    //   - status: string (required)
+    //   - baseHoursLog: number (required)
+    //   - additionalHoursLog: number (required)
+    //   - milesDriven: number (required)
+    //   - bundleId: string (optional)
+    //
+    // Collection: users/{userId}/invoices
+    // Document ID: {invoiceId}
+    // Fields:
+    //   - id: string (required)
+    //   - inspectionId: string (required)
+    //   - agencyId: string (required)
+    //   - totalAmount: number (required)
+    //   - pdfDriveId: string (required)
+    //   - status: string (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Domain Validators
+    function isValidAgency(data) {
+      return hasOnlyAllowedFields(['id', 'name', 'billingAddress', 'flatRateBaseAmount', 'flatRateIncludedHours', 'additionalHourlyRate', 'mileageRate']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.billingAddress is string && data.billingAddress.size() > 0 && data.billingAddress.size() < 500 &&
+             data.flatRateBaseAmount is number && data.flatRateBaseAmount >= 0 &&
+             data.flatRateIncludedHours is number && data.flatRateIncludedHours >= 0 &&
+             data.additionalHourlyRate is number && data.additionalHourlyRate >= 0 &&
+             data.mileageRate is number && data.mileageRate >= 0;
+    }
+
+    function isValidOperation(data) {
+      return hasOnlyAllowedFields(['id', 'name', 'agencyId', 'address', 'lat', 'lon', 'contactEmail', 'driveFolderId']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.agencyId is string && data.agencyId.size() > 0 && data.agencyId.size() < 100 &&
+             data.address is string && data.address.size() > 0 && data.address.size() < 500 &&
+             data.lat is number &&
+             data.lon is number &&
+             isValidEmail(data.contactEmail) && data.contactEmail.size() < 200 &&
+             data.driveFolderId is string && data.driveFolderId.size() > 0 && data.driveFolderId.size() < 200;
+    }
+
+    function isValidInspection(data) {
+      return hasOnlyAllowedFields(['id', 'operationId', 'date', 'status', 'baseHoursLog', 'additionalHoursLog', 'milesDriven', 'bundleId']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.operationId is string && data.operationId.size() > 0 && data.operationId.size() < 100 &&
+             data.date is string && data.date.size() > 0 && data.date.size() < 100 &&
+             data.status in ['Scheduled', 'In Progress', 'Completed', 'Cancelled'] &&
+             data.baseHoursLog is number && data.baseHoursLog >= 0 &&
+             data.additionalHoursLog is number && data.additionalHoursLog >= 0 &&
+             data.milesDriven is number && data.milesDriven >= 0 &&
+             (!('bundleId' in data) || (data.bundleId is string && data.bundleId.size() < 100));
+    }
+
+    function isValidInvoice(data) {
+      return hasOnlyAllowedFields(['id', 'inspectionId', 'agencyId', 'totalAmount', 'pdfDriveId', 'status']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.inspectionId is string && data.inspectionId.size() > 0 && data.inspectionId.size() < 100 &&
+             data.agencyId is string && data.agencyId.size() > 0 && data.agencyId.size() < 100 &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
+             data.pdfDriveId is string && data.pdfDriveId.size() > 0 && data.pdfDriveId.size() < 200 &&
+             data.status in ['Paid', 'Unpaid'];
+    }
+
+    match /users/{userId} {
+      // Prevent reading/writing to the root user document unless we define it later
+      allow read, write: if false;
+
+      match /agencies/{agencyId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidAgency(request.resource.data);
+        allow update: if isOwner(userId) && isValidAgency(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /operations/{operationId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidOperation(request.resource.data);
+        allow update: if isOwner(userId) && isValidOperation(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /inspections/{inspectionId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidInspection(request.resource.data);
+        allow update: if isOwner(userId) && isValidInspection(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /invoices/{invoiceId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidInvoice(request.resource.data);
+        allow update: if isOwner(userId) && isValidInvoice(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
