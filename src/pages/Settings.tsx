@@ -3,8 +3,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
-import { Plus, Edit2, Trash2, Building2, DollarSign, Clock, MapPin, X, Car, Shield, Download } from 'lucide-react';
+import { Plus, Edit2, Trash2, Building2, DollarSign, Clock, MapPin, X, Car, Shield, FolderSync } from 'lucide-react';
 import { configStore } from '../lib/configStore';
+import { requestLocalFolder, getStoredLocalFolder } from '../lib/localFsSync';
 
 interface Agency {
   id: string;
@@ -37,6 +38,16 @@ export default function Settings() {
     travelTimeHourlyRate: 0,
     perDiemRate: 0,
   });
+
+  const [localFolderLinked, setLocalFolderLinked] = useState(false);
+
+  useEffect(() => {
+    getStoredLocalFolder().then(handle => {
+      if (handle) {
+        setLocalFolderLinked(true);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -172,6 +183,10 @@ export default function Settings() {
       alert('Failed to generate backup. Check console for details.');
     } finally {
       setIsBackingUp(false);
+  const handleLinkLocalFolder = async () => {
+    const handle = await requestLocalFolder();
+    if (handle) {
+      setLocalFolderLinked(true);
     }
   };
 
@@ -287,6 +302,38 @@ export default function Settings() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden mt-8">
+        <div className="px-6 py-5 border-b border-stone-100 flex items-center gap-3 bg-stone-50/50">
+          <FolderSync className="text-[#D49A6A]" size={20} />
+          <h2 className="text-lg font-bold text-stone-900">Local File Mirroring</h2>
+        </div>
+
+        <div className="p-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-stone-900">Link Local Folder</h3>
+              <p className="text-sm text-stone-600 mt-1 max-w-xl">
+                Select a folder on your computer to automatically save a copy of all uploaded documents. This mirrors the Google Drive folder structure locally.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {localFolderLinked && (
+                <span className="text-sm text-emerald-600 font-medium px-3 py-1 bg-emerald-50 rounded-full border border-emerald-100">
+                  Linked Successfully
+                </span>
+              )}
+              <button
+                onClick={handleLinkLocalFolder}
+                className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors shrink-0"
+              >
+                {localFolderLinked ? 'Change Local Folder' : 'Link Local Folder'}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden mt-8">

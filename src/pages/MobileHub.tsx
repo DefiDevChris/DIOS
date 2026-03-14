@@ -1,17 +1,26 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { storage } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Camera, RefreshCw, Upload, X, CheckCircle } from 'lucide-react';
+import { queueFile, processQueue } from '../lib/syncQueue';
 
 export default function MobileHub() {
-  const { user } = useAuth();
+  const { user, googleAccessToken } = useAuth();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [success, setSuccess] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      if (googleAccessToken) {
+        processQueue(googleAccessToken);
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [googleAccessToken]);
 
   useEffect(() => {
     if (imageFile) {
@@ -52,15 +61,15 @@ export default function MobileHub() {
     try {
       const year = new Date().getFullYear();
       const fileName = `${Date.now()}_${imageFile.name || 'capture.jpg'}`;
-      // Pushes the captured image to "DIOS Master Inspections Database/Unassigned Uploads/[Current Year]" in storage/drive concept
-      const storageRef = ref(storage, `users/${user.uid}/uploads/${year}/${fileName}`);
 
-      // TODO: Implement Service Worker offline caching for uploads when out of cell service.
-      await uploadBytes(storageRef, imageFile);
-      const url = await getDownloadURL(storageRef);
-      console.log('File available at', url);
+      await queueFile(imageFile, { fileName, year, uid: user.uid });
 
       setSuccess(true);
+
+      if (googleAccessToken) {
+        processQueue(googleAccessToken);
+      }
+
       setTimeout(() => {
         setImageFile(null);
         setSuccess(false);
@@ -89,7 +98,7 @@ export default function MobileHub() {
             <div className="flex flex-col items-center justify-center text-emerald-600 animate-in fade-in zoom-in duration-300">
               <CheckCircle size={64} className="mb-4" />
               <h2 className="text-xl font-bold">Upload Complete</h2>
-              <p className="text-sm text-stone-500 mt-2 text-center">Image successfully saved to Unassigned Uploads.</p>
+              <p className="text-sm text-stone-500 mt-2 text-center">Saved offline. Will sync when connected.</p>
             </div>
           ) : previewUrl ? (
             <div className="w-full h-full flex flex-col relative animate-in fade-in duration-300">

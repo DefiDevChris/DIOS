@@ -22,6 +22,8 @@ interface Operation {
   agencyId: string;
   status: 'active' | 'inactive';
   notes: string;
+  lat?: number;
+  lng?: number;
 }
 
 export default function Operations() {

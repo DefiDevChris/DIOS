@@ -3,9 +3,11 @@ import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { db, storage } from '../firebase';
 import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref } from 'firebase/storage';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { configStore } from '../lib/configStore';
+import { uploadToDrive } from '../lib/driveSync';
+import { getStoredLocalFolder, writeLocalFile } from '../lib/localFsSync';
 import { 
   ArrowLeft, Check, Search, FileText, Receipt, CheckCircle, 
   MapPin, Phone, Mail, Building2, Calendar, Edit3, CloudUpload, 
@@ -24,6 +26,8 @@ interface Operation {
   notes: string;
   quickNote?: string;
   inspectionStatus?: 'prep' | 'scheduled' | 'inspected' | 'report' | 'invoiced' | 'paid';
+  lat?: number;
+  lng?: number;
 }
 
 const INSPECTION_STEPS = [
@@ -56,7 +60,7 @@ import TasksWidget from '../components/TasksWidget';
 export default function OperationProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, googleAccessToken } = useAuth();
   
   const [operation, setOperation] = useState<Operation | null>(null);
   const [agencyName, setAgencyName] = useState<string>('Loading...');
@@ -233,30 +237,53 @@ export default function OperationProfile() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user || !id) return;
+    if (!file || !user || !id || !operation) return;
+
+    if (!googleAccessToken) {
+      alert("Please sign in with Google to upload files to Drive.");
+      return;
+    }
 
     setUploadingDoc(true);
     const docsPath = `users/${user.uid}/operations/${id}/documents`;
     
     try {
-      // Create a reference to the file in Firebase Storage
-      const storageRef = ref(storage, `users/${user.uid}/operations/${id}/documents/${Date.now()}_${file.name}`);
-      
-      // Upload the file
-      const snapshot = await uploadBytes(storageRef, file);
-      
-      // Get the download URL
-      const downloadURL = await getDownloadURL(snapshot.ref);
+      const year = new Date().getFullYear().toString();
+      const opName = operation.name || 'Unknown Operation';
+      const agName = agencyName || 'Unknown Agency';
 
-      // Store metadata in Firestore
+      // 1. Upload to Google Drive
+      const driveUpload = await uploadToDrive(
+        googleAccessToken,
+        user.uid,
+        file,
+        agName,
+        opName,
+        year
+      );
+
+      // 2. Mirror locally if a folder is linked
+      try {
+        const localHandle = await getStoredLocalFolder(true); // Allow prompt during upload user action
+        if (localHandle) {
+          await writeLocalFile(localHandle, [agName, opName, year], file);
+          console.log("Successfully mirrored to local folder.");
+        }
+      } catch (localError) {
+        console.error("Failed to mirror file locally:", localError);
+        // We don't fail the whole upload if local mirror fails
+      }
+
+      // 3. Store metadata in Firestore
       const newDocRef = doc(collection(db, docsPath));
       await setDoc(newDocRef, {
         name: file.name,
         size: file.size,
         type: file.type,
         uploadedAt: new Date().toISOString(),
-        url: downloadURL
+        url: driveUpload.webViewLink
       });
+
       await logActivity('document_upload', `${file.name} uploaded`);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, docsPath);
