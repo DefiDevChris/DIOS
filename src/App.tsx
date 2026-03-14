@@ -14,6 +14,11 @@ import OperationProfile from './pages/OperationProfile';
 import InspectionProfile from './pages/InspectionProfile';
 import Routing from './pages/Routing';
 import NotesTasks from './pages/NotesTasks';
+import MobileHub from './pages/MobileHub';
+import Schedule from './pages/Schedule';
+import SetupWizard from './components/SetupWizard';
+import { configStore } from './lib/configStore';
+import { useState, useEffect } from 'react';
 
 // Placeholder components for new routes
 const Placeholder = ({ title }: { title: string }) => (
@@ -38,11 +43,33 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const [hasConfig, setHasConfig] = useState(configStore.hasConfig());
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setHasConfig(configStore.hasConfig());
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  if (!hasConfig) {
+    return <SetupWizard onComplete={() => window.location.reload()} />;
+  }
+
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route
+            path="/mobile-hub"
+            element={
+              <ProtectedRoute>
+                <MobileHub />
+              </ProtectedRoute>
+            }
+          />
           <Route 
             path="/" 
             element={
@@ -57,7 +84,7 @@ export default function App() {
             <Route path="inspections" element={<Placeholder title="Inspections" />} />
             <Route path="inspections/:id" element={<InspectionProfile />} />
             <Route path="invoices" element={<Placeholder title="Invoices" />} />
-            <Route path="schedule" element={<Placeholder title="Schedule" />} />
+            <Route path="schedule" element={<Schedule />} />
             
             <Route path="notes" element={<NotesTasks />} />
             <Route path="email" element={<Placeholder title="Email" />} />

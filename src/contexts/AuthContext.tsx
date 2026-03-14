@@ -6,7 +6,7 @@ import {
   onAuthStateChanged, 
   User 
 } from 'firebase/auth';
-import { auth } from '../firebase';
+import { auth, isInitialized } from '../firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -24,6 +24,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!isInitialized || !auth) {
+      setLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
@@ -33,6 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithGoogle = async () => {
+    if (!auth) throw new Error('Firebase Auth not initialized');
     try {
       const provider = new GoogleAuthProvider();
       // Add scopes for Drive, Calendar, and Gmail
@@ -56,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    if (!auth) return;
     try {
       await firebaseSignOut(auth);
       setGoogleAccessToken(null);
