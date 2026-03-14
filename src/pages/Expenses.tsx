@@ -25,20 +25,7 @@ export default function Expenses() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
 
-  // MOCK FOR DEVELOPMENT/TESTING
   useEffect(() => {
-    // If we're not using real auth, load dummy data
-    if (!user && window.location.hostname === 'localhost') {
-        setTimeout(() => {
-            setExpenses([
-                { id: '1', vendor: 'Home Depot', amount: 45.99, date: '2026-03-01', notes: 'Supplies', createdAt: new Date() },
-                { id: '2', vendor: 'Shell Gas', amount: 65.00, date: '2026-03-02', notes: 'Fuel for inspection', createdAt: new Date() }
-            ]);
-            setLoading(false);
-        }, 500);
-        return;
-    }
-
     if (!user) return;
 
     const q = query(
