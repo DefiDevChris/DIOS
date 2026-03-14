@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "npm run dev -w apps/desktop",
     "dev:mobile": "npm run dev -w apps/mobile",
-    "build": "npm run build -w packages/shared && npm run build -w apps/desktop",
+    "build": "npm run build -w packages/shared && npm run build:main -w apps/desktop && npm run build -w apps/desktop",
     "build:mobile": "npm run build -w packages/shared && npm run build -w apps/mobile",
     "lint": "npm run lint -w packages/shared && npm run lint -w apps/desktop",
     "clean": "npm run clean -w apps/desktop && npm run clean -w apps/mobile",

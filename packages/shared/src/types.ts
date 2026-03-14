@@ -88,6 +88,7 @@ export interface Inspection {
   customLineItemName?: string
   customLineItemAmount?: number
   linkedExpenses?: string[] | string
+  lineItems?: string
   notes?: string
   invoiceNotes?: string
   invoiceExceptions?: string

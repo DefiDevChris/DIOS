@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, ReactNode, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { startBackgroundSync, stopBackgroundSync, getQueueSize, processQueue } from '../lib/syncQueue';
+import { isElectron } from '../utils/isElectron';
 
 interface BackgroundSyncContextType {
   /** Number of items waiting in the offline queue */
@@ -12,8 +13,6 @@ interface BackgroundSyncContextType {
 }
 
 const BackgroundSyncContext = createContext<BackgroundSyncContextType | undefined>(undefined);
-
-const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.sync;
 
 export function BackgroundSyncProvider({ children }: { children: ReactNode }) {
   const { googleAccessToken } = useAuth();

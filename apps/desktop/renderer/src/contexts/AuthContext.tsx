@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { auth, isInitialized } from '@dios/shared/firebase';
 import { configStore, registerTokenRefresher, OAUTH_SCOPES, logger } from '@dios/shared';
+import { isElectron } from '../utils/isElectron';
 /// <reference path="../types/google-gis.d.ts" />
 
 declare global {
@@ -40,8 +41,6 @@ declare global {
   }
 }
 
-const isElectron = typeof window !== 'undefined' && !!window.electronAPI
-
 const TOKEN_STORAGE_KEY = 'googleAccessToken';
 const TOKEN_EXPIRY_KEY = 'googleAccessTokenExpiry';
 
@@ -51,6 +50,7 @@ interface AuthContextType {
   user: User | null;
   googleAccessToken: string | null;
   loading: boolean;
+  isLocalUser: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshGoogleToken: () => Promise<string>;
@@ -70,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem(TOKEN_STORAGE_KEY)
   );
   const [loading, setLoading] = useState(true);
+  const [isLocalUser, setIsLocalUser] = useState(false);
 
   // Holds the GIS TokenClient instance once initialized
   const tokenClientRef = useRef<GisTokenClient | null>(null);
@@ -142,11 +143,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (gisOAuth2) {
       tryInit();
     } else {
+      let attempts = 0;
+      const maxAttempts = 20; // 10 seconds timeout (20 * 500ms)
       const interval = setInterval(() => {
+        attempts++;
         const ready = (window.google?.accounts as GisAccounts | undefined)?.oauth2;
         if (ready) {
           clearInterval(interval);
           tryInit();
+        } else if (attempts >= maxAttempts) {
+          // Timeout: stop polling to prevent infinite loop
+          clearInterval(interval);
+          logger.warn('GIS SDK failed to load within timeout period');
         }
       }, 500);
       return () => clearInterval(interval);
@@ -158,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!isInitialized || !auth) {
       setUser(localUser);
+      setIsLocalUser(true);
       setLoading(false);
       return;
     }
@@ -166,7 +175,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       resolved = true;
-      setUser(currentUser ?? localUser);
+      const effectiveUser = currentUser ?? localUser;
+      setUser(effectiveUser);
+      setIsLocalUser(!currentUser);
       setLoading(false);
     });
 
@@ -175,6 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const timeout = setTimeout(() => {
       if (!resolved) {
         setUser(localUser);
+        setIsLocalUser(true);
         setLoading(false);
       }
     }, 2000);
@@ -243,6 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!auth) {
       // Firebase not available — set local user
       setUser({ uid: 'local-user', email: 'local@dios.studio', displayName: 'Local User' } as User);
+      setIsLocalUser(true);
       return;
     }
     try {
@@ -295,6 +308,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     googleAccessToken,
     loading,
+    isLocalUser,
     signInWithGoogle,
     signOut,
     refreshGoogleToken,

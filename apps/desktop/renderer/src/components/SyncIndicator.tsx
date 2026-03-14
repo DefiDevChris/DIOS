@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Cloud, CloudOff, RefreshCw } from 'lucide-react'
-
-const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.sync
+import { isElectron } from '../utils/isElectron'
 
 type SyncVisualState = 'synced' | 'pending' | 'error' | 'offline'
 

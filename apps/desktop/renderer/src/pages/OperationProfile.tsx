@@ -56,7 +56,7 @@ type TabId = 'overview' | 'inspections' | 'documents' | 'activity';
 export default function OperationProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user, googleAccessToken } = useAuth();
+  const { user, googleAccessToken, isLocalUser } = useAuth();
 
   const [operation, setOperation] = useState<LocalOperation | null>(null);
   const [agency, setAgency] = useState<Agency | null>(null);
@@ -100,7 +100,10 @@ export default function OperationProfile() {
 
   // Load operation, agency, documents, inspections
   useEffect(() => {
-    if (!user || !id) return;
+    if (!user || !id || isLocalUser || !db) {
+      setLoading(false);
+      return;
+    }
 
     const opPath = `users/${user.uid}/operations/${id}`;
     const unsubOp = onSnapshot(
@@ -167,11 +170,11 @@ export default function OperationProfile() {
       unsubAllOps();
       unsubAllAgencies();
     };
-  }, [user, id, navigate]);
+  }, [user, id, navigate, isLocalUser]);
 
   // Distance calculation on load
   useEffect(() => {
-    if (!user || !operation || !id) return;
+    if (!user || !operation || !id || isLocalUser || !db) return;
     if (operation.cachedDistanceMiles != null) return;
     if (!operation.lat || !operation.lng) return;
 
@@ -209,11 +212,11 @@ export default function OperationProfile() {
     };
 
     fetchDistance();
-  }, [user, operation, id]);
+  }, [user, operation, id, isLocalUser]);
 
   const logActivity = useCallback(
     async (type: string, description: string) => {
-      if (!user || !id) return;
+      if (!user || !id || isLocalUser || !db) return;
       const path = `users/${user.uid}/operation_activities`;
       try {
         const newRef = doc(collection(db, path));
@@ -228,9 +231,10 @@ export default function OperationProfile() {
         });
       } catch (error) {
         logger.error('Failed to log activity:', error);
+        Swal.fire({ text: 'Failed to log activity.', icon: 'error' });
       }
     },
-    [user, id]
+    [user, id, isLocalUser]
   );
 
   // Gmail CRM
@@ -350,7 +354,10 @@ export default function OperationProfile() {
   // Scheduling
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !id || !scheduleDate) return;
+    if (!user || !id || !scheduleDate || isLocalUser || !db) {
+      Swal.fire({ text: 'Cannot schedule inspection in offline mode.', icon: 'warning' });
+      return;
+    }
 
     try {
       const inspectionsPath = `users/${user.uid}/inspections`;
@@ -383,12 +390,16 @@ export default function OperationProfile() {
       setScheduleEndDate('');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/inspections`);
+      Swal.fire({ text: 'Failed to schedule inspection.', icon: 'error' });
     }
   };
 
   // Step completion
   const handleStepComplete = async (data: { hours: number; checklist: ChecklistItem[] }) => {
-    if (!user || !currentInspection || !activeStep) return;
+    if (!user || !currentInspection || !activeStep || isLocalUser || !db) {
+      Swal.fire({ text: 'Cannot update inspection in offline mode.', icon: 'warning' });
+      return;
+    }
 
     const inspPath = `users/${user.uid}/inspections/${currentInspection.id}`;
     const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
@@ -412,6 +423,7 @@ export default function OperationProfile() {
       setActiveStep(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, inspPath);
+      Swal.fire({ text: 'Failed to update inspection step.', icon: 'error' });
     }
   };
 
@@ -431,7 +443,7 @@ export default function OperationProfile() {
 
   // Auto-calculate mileage for current inspection
   useEffect(() => {
-    if (!user || !currentInspection || !operation) return;
+    if (!user || !currentInspection || !operation || isLocalUser || !db) return;
     if (currentInspection.calculatedMileage > 0) return;
     if (!operation.cachedDistanceMiles) return;
 
@@ -439,13 +451,21 @@ export default function OperationProfile() {
     updateDoc(doc(db, inspPath), {
       calculatedMileage: operation.cachedDistanceMiles,
       calculatedDriveTime: operation.cachedDriveTimeMinutes || 0,
-    }).catch((err) => logger.error('Failed to set inspection mileage:', err));
-  }, [user, currentInspection, operation]);
+    }).catch((err) => {
+      logger.error('Failed to set inspection mileage:', err);
+      Swal.fire({ text: 'Failed to update inspection mileage.', icon: 'error' });
+    });
+  }, [user, currentInspection, operation, isLocalUser]);
 
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user || !id || !operation) return;
+
+    if (isLocalUser || !db) {
+      Swal.fire({ text: 'Cannot upload files in offline mode.', icon: 'warning' });
+      return;
+    }
 
     if (!googleAccessToken) {
       Swal.fire({ text: 'Please sign in with Google to upload files to Drive.', icon: 'info' });
@@ -483,6 +503,7 @@ export default function OperationProfile() {
       await logActivity('document_upload', `${file.name} uploaded`);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, docsPath);
+      Swal.fire({ text: 'Failed to upload document.', icon: 'error' });
     } finally {
       setUploadingDoc(false);
       e.target.value = '';
@@ -509,7 +530,7 @@ export default function OperationProfile() {
   if (!operation) return null;
 
   const currentYear = new Date().getFullYear();
-  const availableYears = Array.from({ length: 5 }, (_, i) => 2026 + i).filter((y) => y <= currentYear + 1);
+  const availableYears = Array.from({ length: 5 }, (_, i) => currentYear + i).filter((y) => y <= currentYear + 1);
 
   const prepChecklist: ChecklistItem[] = agency?.prepChecklistEnabled
     ? JSON.parse(agency.prepChecklistItems || '["Prep complete"]').map((item: string) => ({ item, checked: false }))

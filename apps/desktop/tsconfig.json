@@ -8,8 +8,6 @@
       "@/*": ["./renderer/src/*"]
     }
   },
-  "include": ["renderer/src"],
-  "references": [
-    { "path": "../../packages/shared" }
-  ]
+  "include": ["renderer/src", "main"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx"]
 }

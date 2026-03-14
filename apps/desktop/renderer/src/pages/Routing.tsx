@@ -209,6 +209,13 @@ export default function Routing() {
       return;
     }
 
+    // Verify Google Maps API is loaded before using DirectionsService
+    if (!window.google?.maps?.DirectionsService) {
+      Swal.fire({ text: "Google Maps API is not yet loaded. Please wait a moment and try again.", icon: 'warning' });
+      logger.error('DirectionsService called before Google Maps API loaded');
+      return;
+    }
+
     setIsCalculating(true);
     const directionsService = new window.google.maps.DirectionsService();
 

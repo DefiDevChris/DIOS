@@ -2,8 +2,7 @@ import { useCallback } from 'react'
 import { collection, doc, setDoc, deleteDoc, getDocs, getDoc } from 'firebase/firestore'
 import { db as firestoreDb } from '@dios/shared/firebase'
 import { useAuth } from '../contexts/AuthContext'
-
-const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.db
+import { isElectron } from '../utils/isElectron'
 
 interface UseDatabaseOptions {
   table: string

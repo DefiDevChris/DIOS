@@ -34,7 +34,7 @@ interface Operation {
 }
 
 export default function Operations() {
-  const { user, googleAccessToken } = useAuth();
+  const { user, googleAccessToken, isLocalUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [operations, setOperations] = useState<Operation[]>([]);
@@ -77,7 +77,10 @@ export default function Operations() {
   });
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || isLocalUser || !db) {
+      setLoading(false);
+      return;
+    }
 
     // Fetch Agencies for the dropdown
     const agenciesPath = `users/${user.uid}/agencies`;
@@ -112,7 +115,7 @@ export default function Operations() {
       unsubAgencies();
       unsubOps();
     };
-  }, [user]);
+  }, [user, isLocalUser]);
 
   // Auto-open "Add Operation" modal when navigated here with ?new=1
   useEffect(() => {
@@ -168,7 +171,10 @@ export default function Operations() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || isLocalUser || !db) {
+      Swal.fire({ text: 'Cannot save operation in offline mode.', icon: 'warning' });
+      return;
+    }
 
     const opId = editingOp ? editingOp.id : doc(collection(db, `users/${user.uid}/operations`)).id;
     const path = `users/${user.uid}/operations/${opId}`;
@@ -202,6 +208,7 @@ export default function Operations() {
       }
     } catch (error) {
       handleFirestoreError(error, editingOp ? OperationType.UPDATE : OperationType.CREATE, path);
+      Swal.fire({ text: 'Failed to save operation. Please try again.', icon: 'error' });
     }
   };
 
@@ -210,7 +217,10 @@ export default function Operations() {
   };
 
   const confirmDelete = async () => {
-    if (!user || !opToDelete) return;
+    if (!user || !opToDelete || isLocalUser || !db) {
+      Swal.fire({ text: 'Cannot delete operation in offline mode.', icon: 'warning' });
+      return;
+    }
     
     const path = `users/${user.uid}/operations/${opToDelete}`;
     try {
@@ -218,6 +228,7 @@ export default function Operations() {
       setOpToDelete(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, path);
+      Swal.fire({ text: 'Failed to delete operation.', icon: 'error' });
     }
   };
 
@@ -226,7 +237,10 @@ export default function Operations() {
   };
 
   const handleConfirmImport = async () => {
-    if (!user || !importAgencyId) return;
+    if (!user || !importAgencyId || isLocalUser || !db) {
+      Swal.fire({ text: 'Cannot import operations in offline mode.', icon: 'warning' });
+      return;
+    }
 
     try {
       // Instead of writeBatch (since we don't have it imported and setDoc is easy), we'll use Promise.all
@@ -258,8 +272,10 @@ export default function Operations() {
       setIsImportModalOpen(false);
       setImportData([]);
       setImportHeaders([]);
+      Swal.fire({ text: `Successfully imported ${importData.length} operations.`, icon: 'success', timer: 2000, showConfirmButton: false });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/operations`);
+      Swal.fire({ text: 'Failed to import operations. Please try again.', icon: 'error' });
     }
   };
 

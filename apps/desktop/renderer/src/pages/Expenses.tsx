@@ -23,7 +23,7 @@ interface Expense {
 type ReceiptMode = 'camera' | 'manual' | 'uploads' | 'local-upload' | null;
 
 export default function Expenses() {
-  const { user, googleAccessToken } = useAuth();
+  const { user, googleAccessToken, isLocalUser } = useAuth();
   const location = useLocation();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,10 @@ export default function Expenses() {
   const [assigningFileId, setAssigningFileId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || isLocalUser || !db) {
+      setLoading(false);
+      return;
+    }
 
     const q = query(
       collection(db, 'users', user.uid, 'expenses'),
@@ -58,7 +61,7 @@ export default function Expenses() {
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isLocalUser]);
 
   // Auto-open "Add Receipt" modal when navigated here with ?new=1
   useEffect(() => {
@@ -69,17 +72,17 @@ export default function Expenses() {
   }, [location.search]);
 
   const confirmDelete = async () => {
-    if (!user || !expenseToDelete) return;
+    if (!user || !expenseToDelete || isLocalUser || !db) {
+      Swal.fire({ text: 'Cannot delete expense in offline mode.', icon: 'warning' });
+      return;
+    }
 
     try {
       // Dismiss modal optimistically — the local cache processes the delete immediately
       // even when the network is disabled; the server sync happens in the background.
       const idToDelete = expenseToDelete;
       setExpenseToDelete(null);
-      deleteDoc(doc(db, 'users', user.uid, 'expenses', idToDelete)).catch((error) => {
-        logger.error('Error deleting expense:', error);
-        Swal.fire({ text: 'Failed to delete expense.', icon: 'error' });
-      });
+      await deleteDoc(doc(db, 'users', user.uid, 'expenses', idToDelete));
     } catch (error) {
       logger.error('Error deleting expense:', error);
       Swal.fire({ text: 'Failed to delete expense.', icon: 'error' });
@@ -87,7 +90,7 @@ export default function Expenses() {
   };
 
   const fetchUnassignedUploads = async () => {
-    if (!user || !googleAccessToken) return;
+    if (!user || !googleAccessToken || isLocalUser || !db) return;
     setLoadingUploads(true);
 
     try {
@@ -120,7 +123,10 @@ export default function Expenses() {
   };
 
   const assignFileAsReceipt = async (file: { id: string; name: string }) => {
-    if (!user) return;
+    if (!user || isLocalUser || !db) {
+      Swal.fire({ text: 'Cannot assign receipt in offline mode.', icon: 'warning' });
+      return;
+    }
     setAssigningFileId(file.id);
 
     try {
@@ -140,8 +146,8 @@ export default function Expenses() {
       }
 
       const expenseRef = doc(collection(db, `users/${user.uid}/expenses`));
-      // Fire-and-forget: local cache processes the write immediately
-      setDoc(expenseRef, {
+      // Await the write and show user notification on failure
+      await setDoc(expenseRef, {
         vendor: '',
         amount: 0,
         date: new Date().toISOString().split('T')[0],
@@ -149,8 +155,6 @@ export default function Expenses() {
         receiptFileName: file.name,
         receiptFileId: file.id,
         createdAt: new Date().toISOString(),
-      }).catch((error) => {
-        logger.error('Firestore write failed:', error);
       });
 
       setUnassignedFiles(prev => prev.filter(f => f.id !== file.id));

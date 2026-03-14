@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '@dios/shared/firebase';
-import { doc, onSnapshot, updateDoc, collection, getDocs, query, orderBy, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, getDocs, query, orderBy, setDoc, serverTimestamp, getDoc as getDocOnce } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
 import { getNextInvoiceNumber } from '../utils/invoiceNumbering';
@@ -308,6 +308,11 @@ export default function InspectionProfile() {
     setSaving(true);
 
     try {
+      // Fetch business profile from system_settings
+      const configDocRef = doc(db, `users/${user.uid}/system_settings/config`);
+      const configSnapshot = await getDocOnce(configDocRef);
+      const businessProfile = configSnapshot.exists() ? configSnapshot.data() : null;
+
       const invoiceTotal = calculateInvoiceTotal();
       const calculatedDriveTime = isBundled && totalTripStops > 0 ? Math.round(totalTripDriveTime) / totalTripStops : totalTripDriveTime;
 
@@ -344,11 +349,11 @@ export default function InspectionProfile() {
           return getNextInvoiceNumber(year, yearCount);
         })(),
         date: format(new Date(), 'MMM d, yyyy'),
-        businessName: '',
-        businessAddress: '',
-        businessPhone: '',
-        businessEmail: '',
-        ownerName: '',
+        businessName: businessProfile?.businessName ?? '',
+        businessAddress: businessProfile?.businessAddress ?? '',
+        businessPhone: businessProfile?.businessPhone ?? '',
+        businessEmail: businessProfile?.businessEmail ?? '',
+        ownerName: businessProfile?.ownerName ?? '',
         operationName: operation.name,
         operationAddress: operation.address,
         agencyName: agency.name,
@@ -506,8 +511,11 @@ export default function InspectionProfile() {
                   className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
                 >
                   <option value="Scheduled">Scheduled</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Completed">Completed</option>
+                  <option value="Prep">Prep</option>
+                  <option value="Inspected">Inspected</option>
+                  <option value="Report">Report</option>
+                  <option value="Invoiced">Invoiced</option>
+                  <option value="Paid">Paid</option>
                   <option value="Cancelled">Cancelled</option>
                 </select>
               </div>
