@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
+import { geocodeAndSaveOperation } from '../utils/geocodingUtils';
 import { Plus, Edit2, Trash2, Building2, MapPin, Phone, Mail, Search, X, Briefcase, ChevronRight, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 
@@ -156,6 +157,14 @@ export default function Operations() {
     try {
       await setDoc(doc(db, path), opData, { merge: true });
       handleCloseModal();
+
+      // Fire-and-forget background geocoding whenever an address is present
+      // and coordinates are not yet stored (new op) or address may have changed.
+      if (opData.address && (!editingOp || editingOp.address !== opData.address)) {
+        geocodeAndSaveOperation(user.uid, opId, opData.address).catch(err =>
+          console.error('Background geocoding failed:', err)
+        );
+      }
     } catch (error) {
       handleFirestoreError(error, editingOp ? OperationType.UPDATE : OperationType.CREATE, path);
     }
