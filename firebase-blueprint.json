@@ -116,6 +116,20 @@
         "inspectionId": { "type": "string" }
       },
       "required": ["id", "title", "status", "createdAt"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Expenses extracted from receipts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "vendor": { "type": "string" },
+        "amount": { "type": "number" },
+        "notes": { "type": "string" },
+        "receiptImageUrl": { "type": "string" }
+      },
+      "required": ["id", "date", "vendor", "amount"]
     }
   },
   "firestore": {
@@ -146,6 +160,10 @@
     "/users/{userId}/tasks/{taskId}": {
       "schema": { "$ref": "#/entities/Task" },
       "description": "User's tasks"
+    },
+    "/users/{userId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/Expense" },
+      "description": "User's expenses"
     }
   }
 }
