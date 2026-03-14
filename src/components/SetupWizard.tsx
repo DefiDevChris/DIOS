@@ -3,7 +3,8 @@ import { initializeApp, deleteApp, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { configStore, AppConfig } from '../lib/configStore';
 import { initializeFirebase } from '../firebase';
-import { Check, ArrowRight, Database, Map, AlertCircle, Shield } from 'lucide-react';
+import { Check, ArrowRight, Database, Map, AlertCircle } from 'lucide-react';
+import LeafLogo from './LeafLogo';
 
 export default function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(1);
@@ -101,7 +102,9 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
 
         {/* Header */}
         <div className="bg-[#D49A6A] text-white p-6 flex flex-col items-center justify-center text-center">
-          <Shield size={32} className="mb-3" />
+          <div className="mb-3 drop-shadow-md">
+            <LeafLogo size={48} fill="white" />
+          </div>
           <h1 className="text-2xl font-bold tracking-tight">DOIS Studio Setup</h1>
           <p className="text-sm mt-2 opacity-90 max-w-md">
             Bring Your Own Backend (BYOB). Configure your private cloud environment to secure your data.

@@ -1,30 +1,77 @@
+import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { 
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import {
   Search, CheckSquare, Settings, ChevronDown, Plus,
   LayoutDashboard, Building2, ClipboardCheck, FileText, Calendar,
   StickyNote, Mail, Map as MapIcon, BarChart2, LineChart,
-  HardDrive, Table, Leaf, Wallet
+  HardDrive, ExternalLink, Wallet
 } from 'lucide-react';
+import LeafLogo from './LeafLogo';
 
 export default function Layout() {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
+  const { user, googleAccessToken, signInWithGoogle } = useAuth();
   const location = useLocation();
+  const [driveMasterId, setDriveMasterId] = useState<string | null>(null);
+  const [driveLoading, setDriveLoading] = useState(false);
 
-  const handleSignOut = async () => {
-    await signOut();
-    navigate('/login');
+  // Detect local demo mode
+  const isLocalDemo = (() => {
+    try {
+      const cfg = localStorage.getItem('dois_studio_config');
+      if (!cfg) return false;
+      return JSON.parse(cfg)?.firebaseConfig?.apiKey === 'dummy';
+    } catch {
+      return false;
+    }
+  })();
+
+  useEffect(() => {
+    if (!user || isLocalDemo) return;
+    const fetchDriveFolders = async () => {
+      try {
+        const snap = await getDoc(doc(db, `users/${user.uid}/system_settings/config`));
+        const masterId = snap.data()?.driveFolders?.masterId;
+        if (masterId) setDriveMasterId(masterId);
+      } catch {
+        // ignore
+      }
+    };
+    fetchDriveFolders();
+  }, [user, isLocalDemo]);
+
+  const handleDriveClick = async () => {
+    if (isLocalDemo) {
+      // Local-only mode: prompt Drive connection setup (sign in with Google)
+      alert('Connect Google Drive by signing in with your Google account in Settings.');
+      return;
+    }
+    if (driveMasterId && googleAccessToken) {
+      // Open master Drive folder in new tab
+      window.open(`https://drive.google.com/drive/folders/${driveMasterId}`, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    // Not yet connected — trigger Google sign-in to get Drive access
+    setDriveLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch {
+      // ignore
+    } finally {
+      setDriveLoading(false);
+    }
   };
 
   const NavItem = ({ to, icon: Icon, label, active }: { to: string, icon: any, label: string, active?: boolean }) => {
     const isActive = active !== undefined ? active : location.pathname === to;
     return (
-      <Link 
-        to={to} 
+      <Link
+        to={to}
         className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-colors text-sm font-medium ${
-          isActive 
-            ? 'bg-[#D49A6A] text-white shadow-sm' 
+          isActive
+            ? 'bg-[#D49A6A] text-white shadow-sm'
             : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
         }`}
       >
@@ -45,16 +92,16 @@ export default function Layout() {
       {/* Top Navigation Bar */}
       <header className="h-16 bg-white border-b border-stone-200 flex items-center justify-between px-6 shrink-0 z-10">
         <div className="flex items-center gap-2 w-64">
-          <Leaf className="text-emerald-600" size={24} fill="currentColor" />
+          <LeafLogo size={28} />
           <span className="text-xl font-bold text-stone-900 tracking-tight">DOIS</span>
         </div>
-        
+
         <div className="flex-1 flex justify-center">
           <div className="relative w-full max-w-2xl">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
-            <input 
-              type="text" 
-              placeholder="Search..." 
+            <input
+              type="text"
+              placeholder="Search..."
               className="w-full bg-stone-100 border-transparent focus:bg-white focus:border-stone-300 focus:ring-2 focus:ring-[#D49A6A]/20 rounded-full py-2 pl-10 pr-12 text-sm transition-all"
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
@@ -72,15 +119,7 @@ export default function Layout() {
           <button className="text-stone-400 hover:text-stone-600 transition-colors">
             <Settings size={20} />
           </button>
-          <div className="flex items-center gap-3 pl-4 border-l border-stone-200 cursor-pointer" onClick={handleSignOut}>
-            <div className="w-8 h-8 rounded-full bg-[#D49A6A] flex items-center justify-center text-white font-bold text-sm shrink-0">
-              {user?.displayName?.charAt(0) || 'U'}
-            </div>
-            <div className="hidden sm:block text-left">
-              <div className="text-sm font-bold text-stone-900 leading-tight">{user?.displayName || 'User'}</div>
-              <div className="text-[10px] text-stone-500 leading-tight">Administrator</div>
-            </div>
-          </div>
+          <SignOutButton />
         </div>
       </header>
 
@@ -96,7 +135,7 @@ export default function Layout() {
               <ChevronDown size={16} className="opacity-70" />
             </button>
           </div>
-          
+
           <nav className="flex-1 px-3 pb-4 space-y-0.5">
             <SectionHeading>Main</SectionHeading>
             <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
@@ -116,8 +155,16 @@ export default function Layout() {
             <NavItem to="/insights" icon={LineChart} label="Insights" />
 
             <SectionHeading>Google Apps</SectionHeading>
-            <NavItem to="/drive" icon={HardDrive} label="Google Drive" />
-            <NavItem to="/sheets" icon={Table} label="Google Sheets" />
+            <button
+              onClick={handleDriveClick}
+              disabled={driveLoading}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-colors text-sm font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900 disabled:opacity-60"
+            >
+              <HardDrive size={18} className="text-stone-400 shrink-0" />
+              <span className="flex-1 text-left">Google Drive</span>
+              {driveMasterId && googleAccessToken && <ExternalLink size={13} className="text-stone-300" />}
+              {driveLoading && <div className="w-3.5 h-3.5 border-2 border-stone-300 border-t-stone-600 rounded-full animate-spin" />}
+            </button>
 
             <div className="pt-6">
               <NavItem to="/settings" icon={Settings} label="Settings" />
@@ -138,6 +185,29 @@ export default function Layout() {
             <Outlet />
           </div>
         </main>
+      </div>
+    </div>
+  );
+}
+
+// Extracted to avoid calling useAuth hook conditionally inside handleSignOut
+function SignOutButton() {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+  };
+
+  return (
+    <div className="flex items-center gap-3 pl-4 border-l border-stone-200 cursor-pointer" onClick={handleSignOut}>
+      <div className="w-8 h-8 rounded-full bg-[#D49A6A] flex items-center justify-center text-white font-bold text-sm shrink-0">
+        {user?.displayName?.charAt(0) || 'U'}
+      </div>
+      <div className="hidden sm:block text-left">
+        <div className="text-sm font-bold text-stone-900 leading-tight">{user?.displayName || 'User'}</div>
+        <div className="text-[10px] text-stone-500 leading-tight">Administrator</div>
       </div>
     </div>
   );
