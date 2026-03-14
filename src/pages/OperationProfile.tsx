@@ -26,6 +26,8 @@ interface Operation {
   notes: string;
   quickNote?: string;
   inspectionStatus?: 'prep' | 'scheduled' | 'inspected' | 'report' | 'invoiced' | 'paid';
+  lat?: number;
+  lng?: number;
 }
 
 const INSPECTION_STEPS = [
