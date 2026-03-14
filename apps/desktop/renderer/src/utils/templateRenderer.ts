@@ -1,25 +1,11 @@
 /**
- * Variables available for substitution in email templates.
- */
-export interface TemplateVariables {
-  agencyContact: string;
-  agencyName: string;
-  operatorName: string;
-  inspectionDate: string;
-  invoiceNumber: string;
-  totalAmount: string;
-  signature: string;
-}
-
-/**
  * Renders an email template by replacing `{variableName}` placeholders
  * with the corresponding values from the provided variables object.
  */
-export function renderTemplate(template: string, variables: TemplateVariables): string {
+export function renderTemplate(template: string, variables: Record<string, string>): string {
   let result = template;
 
-  const entries = Object.entries(variables) as Array<[string, string]>;
-  for (const [key, value] of entries) {
+  for (const [key, value] of Object.entries(variables)) {
     result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
   }
 
