@@ -6,6 +6,7 @@ import { db } from '../firebase';
 import { Wallet, Plus, Trash2, FileText, Search, Link as LinkIcon, DollarSign, Camera, Upload, PenLine, X, FolderOpen } from 'lucide-react';
 import ReceiptScanner from '../components/ReceiptScanner';
 import { format } from 'date-fns';
+import Swal from 'sweetalert2';
 
 interface Expense {
   id: string;
@@ -71,7 +72,7 @@ export default function Expenses() {
       setExpenseToDelete(null);
     } catch (error) {
       console.error('Error deleting expense:', error);
-      alert('Failed to delete expense.');
+      Swal.fire({ text: 'Failed to delete expense.', icon: 'error' });
     }
   };
 

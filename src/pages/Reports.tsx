@@ -5,6 +5,7 @@ import { collection, query, getDocs, where } from 'firebase/firestore';
 import { FileText, Download, Calendar, TrendingUp, DollarSign, Clock } from 'lucide-react';
 import { generateTaxReportPdf, TaxReportData } from '../lib/pdfGenerator';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
+import Swal from 'sweetalert2';
 import {
   BarChart,
   Bar,
@@ -233,7 +234,7 @@ export default function Reports() {
 
     } catch (error) {
       console.error('Error generating tax report', error);
-      alert('Failed to generate Schedule C Export.');
+      Swal.fire({ text: 'Failed to generate Schedule C Export.', icon: 'error' });
     } finally {
       setGenerating(false);
     }

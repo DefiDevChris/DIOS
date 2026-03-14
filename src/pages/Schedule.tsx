@@ -9,6 +9,7 @@ import { enUS } from 'date-fns/locale/en-US';
 import { Calendar as CalendarIcon, RefreshCw, Loader } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
+import Swal from 'sweetalert2';
 
 const locales = {
   'en-US': enUS,
@@ -121,13 +122,13 @@ export default function Schedule() {
   const handleGoogleCalendarSync = async () => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
     if (!token || token === 'dummy') {
-      alert('Please sign in with Google to sync to Calendar. If you are signed in, your session may have expired — try signing out and back in.');
+      Swal.fire({ text: 'Please sign in with Google to sync to Calendar. If you are signed in, your session may have expired — try signing out and back in.', icon: 'info' });
       return;
     }
 
     const scheduledEvents = events.filter(e => e.status === 'Scheduled');
     if (scheduledEvents.length === 0) {
-      alert('No "Scheduled" inspections to sync.');
+      Swal.fire({ text: 'No "Scheduled" inspections to sync.', icon: 'info' });
       return;
     }
 
@@ -237,7 +238,7 @@ export default function Schedule() {
     if (updatedCount > 0) parts.push(`Updated ${updatedCount} existing event(s)`);
     if (failCount > 0) parts.push(`${failCount} failed — check the console`);
 
-    alert(parts.length > 0 ? parts.join('. ') + '.' : 'Nothing to sync.');
+    Swal.fire({ text: parts.length > 0 ? parts.join('. ') + '.' : 'Nothing to sync.', icon: 'info' });
   };
 
   const eventStyleGetter = (event: InspectionEvent) => {

@@ -9,6 +9,7 @@ import {
   StickyNote, Mail, Map as MapIcon, BarChart2, LineChart,
   HardDrive, ExternalLink, Wallet, X
 } from 'lucide-react';
+import Swal from 'sweetalert2';
 import LeafLogo from './LeafLogo';
 
 // All navigable items available in the command palette
@@ -27,6 +28,13 @@ const SEARCH_ITEMS = [
   { label: 'Settings', to: '/settings', icon: Settings, category: 'System' },
 ];
 
+/**
+ * Layout component that wraps all authenticated pages in the application.
+ * It provides the main navigation sidebar, the top header with a global
+ * search command palette, and an active route content area.
+ *
+ * Includes global keyboard shortcut (⌘K / Ctrl+K) to open the command palette.
+ */
 export default function Layout() {
   const { user, googleAccessToken, signInWithGoogle } = useAuth();
   const location = useLocation();
@@ -111,7 +119,11 @@ export default function Layout() {
 
   const handleDriveClick = async () => {
     if (isLocalDemo) {
-      alert('Connect Google Drive by signing in with your Google account in Settings.');
+      Swal.fire({
+        title: 'Google Drive Not Connected',
+        text: 'Connect Google Drive by signing in with your Google account in Settings.',
+        icon: 'info'
+      });
       return;
     }
     if (driveMasterId && googleAccessToken) {
@@ -225,7 +237,10 @@ export default function Layout() {
 
             {showNewMenu && (
               <div className="absolute left-4 right-4 top-full mt-1 bg-white border border-stone-200 rounded-2xl shadow-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
-                {newMenuItems.map(({ label, icon: Icon, path }) => (
+                {[
+                  { label: 'New Operation', icon: Building2, path: '/operations?new=1' },
+                  { label: 'New Expense', icon: Wallet, path: '/expenses?new=1' }
+                ].map(({ label, icon: Icon, path }) => (
                   <button
                     key={path}
                     onClick={() => {

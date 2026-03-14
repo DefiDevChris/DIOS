@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Camera, RefreshCw, Upload, X, CheckCircle } from 'lucide-react';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
+import Swal from 'sweetalert2';
 
 export default function MobileHub() {
   const { user } = useAuth();
@@ -67,7 +68,7 @@ export default function MobileHub() {
       }, 3000);
     } catch (error) {
       console.error('Upload failed:', error);
-      alert('Upload failed. Please try again.');
+      Swal.fire({ text: 'Upload failed. Please try again.', icon: 'error' });
     } finally {
       setUploading(false);
     }

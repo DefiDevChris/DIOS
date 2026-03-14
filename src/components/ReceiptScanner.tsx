@@ -6,6 +6,7 @@ import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import Swal from 'sweetalert2';
 
 interface ReceiptScannerProps {
   onClose: () => void;
@@ -272,7 +273,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
       }, 1500);
     } catch (error) {
       console.error('Upload failed:', error);
-      alert('Failed to save receipt. Please try again.');
+      Swal.fire({ text: 'Failed to save receipt. Please try again.', icon: 'error' });
     } finally {
       setUploading(false);
     }

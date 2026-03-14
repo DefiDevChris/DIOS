@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { generateInvoicePdf, InvoiceData } from '../lib/pdfGenerator';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
+import Swal from 'sweetalert2';
 
 interface InvoiceRecord {
   id: string;
@@ -186,7 +187,7 @@ export default function Invoices() {
       }
     } catch (error) {
       console.error('Error generating invoice PDF:', error);
-      alert('Failed to generate invoice PDF.');
+      Swal.fire({ text: 'Failed to generate invoice PDF.', icon: 'error' });
     } finally {
       setGeneratingPdf(null);
     }
