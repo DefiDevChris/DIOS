@@ -17,12 +17,30 @@ export interface Agency {
   id: string
   name: string
   billingAddress: string
-  flatRateBaseAmount: number
+  isFlatRate: boolean
+  flatRateAmount: number
   flatRateIncludedHours: number
-  additionalHourlyRate: number
+  flatRateOverageRate: number
+  hourlyRate: number
+  driveTimeHourlyRate: number
+  mileageReimbursed: boolean
   mileageRate: number
-  travelTimeHourlyRate?: number
-  perDiemRate?: number
+  perDiemRate: number
+  perTypeRatesEnabled: boolean
+  ratesByType: string
+  operationTypes: string
+  billingEmail: string
+  billingContactName: string
+  emailTemplateSubject: string
+  emailTemplateBody: string
+  prepChecklistEnabled: boolean
+  prepChecklistItems: string
+  reportChecklistEnabled: boolean
+  reportChecklistItems: string
+  defaultLineItems: string
+  driveFolderId?: string
+  updatedAt: string
+  syncStatus: 'pending' | 'synced' | 'failed'
 }
 
 export interface Operation {
@@ -36,21 +54,31 @@ export interface Operation {
   status: 'active' | 'inactive'
   notes?: string
   quickNote?: string
-  inspectionStatus?: 'prep' | 'scheduled' | 'inspected' | 'report' | 'invoiced' | 'paid'
+  operationType: string
+  clientId: string
   lat?: number
   lng?: number
+  cachedDistanceMiles?: number
+  cachedDriveTimeMinutes?: number
+  updatedAt: string
+  syncStatus: 'pending' | 'synced' | 'failed'
 }
 
 export interface Inspection {
   id: string
   operationId: string
   date: string
-  status: 'Scheduled' | 'In Progress' | 'Completed' | 'Cancelled'
+  endDate?: string
+  status: 'Scheduled' | 'Prep' | 'Inspected' | 'Report' | 'Invoiced' | 'Paid' | 'Cancelled'
+  prepHours: number
+  onsiteHours: number
+  reportHours: number
   baseHoursLog: number
   additionalHoursLog: number
   milesDriven: number
+  calculatedMileage: number
+  calculatedDriveTime: number
   bundleId?: string
-  notes?: string
   isBundled?: boolean
   totalTripDriveTime?: number
   totalTripStops?: number
@@ -59,19 +87,36 @@ export interface Inspection {
   perDiemDays?: number
   customLineItemName?: string
   customLineItemAmount?: number
+  linkedExpenses?: string[] | string
+  notes?: string
   invoiceNotes?: string
   invoiceExceptions?: string
+  prepChecklistData: string
+  reportChecklistData: string
   reportCompleted?: boolean
   googleCalendarEventId?: string
+  updatedAt: string
+  syncStatus: 'pending' | 'synced' | 'failed'
 }
 
 export interface Invoice {
   id: string
   inspectionId: string
+  operationId: string
+  operationName: string
   agencyId: string
+  agencyName: string
   totalAmount: number
-  pdfDriveId: string
-  status: 'Paid' | 'Unpaid'
+  pdfDriveId?: string
+  status: 'Not Complete' | 'Sent' | 'Paid'
+  date: string
+  inspectionDate: string
+  sentDate?: string
+  paidDate?: string
+  lineItems?: string
+  createdAt?: any
+  updatedAt: string
+  syncStatus: 'pending' | 'synced' | 'failed'
 }
 
 export interface Expense {
@@ -132,27 +177,57 @@ export interface SyncRecord {
   lastError?: string
 }
 
+export interface ChecklistItem {
+  item: string
+  checked: boolean
+}
+
+export interface RateConfig {
+  isFlatRate: boolean
+  flatRateAmount: number
+  flatRateIncludedHours: number
+  flatRateOverageRate: number
+  hourlyRate: number
+  driveTimeHourlyRate: number
+  mileageReimbursed: boolean
+  mileageRate: number
+  perDiemRate: number
+}
+
+export interface DefaultLineItem {
+  name: string
+  amount: number
+}
+
+export interface InvoiceLineItem {
+  name: string
+  amount: number
+  details?: string
+}
+
+export interface Note {
+  id: string
+  content: string
+  operationId?: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface InvoiceData {
   invoiceNumber: string
   date: string
-  billTo: { name: string; address: string }
-  serviceFor: { name: string; address: string }
-  baseRate: number
-  baseHours: number
-  additionalHours: number
-  additionalRate: number
-  driveTime: number
-  driveTimeRate: number
-  milesDriven: number
-  mileageRate: number
-  perDiemDays: number
-  perDiemRate: number
-  mealsAndExpenses: number
-  customLineItemName?: string
-  customLineItemAmount?: number
-  notes?: string
-  exceptions?: string
+  businessName: string
+  businessAddress: string
+  businessPhone: string
+  businessEmail: string
+  ownerName: string
+  agencyName: string
+  agencyAddress: string
+  operationName: string
+  operationAddress: string
+  lineItems: InvoiceLineItem[]
   totalAmount: number
+  notes?: string
 }
 
 export interface TaxReportData {
@@ -160,4 +235,7 @@ export interface TaxReportData {
   totalIncome: number
   expenses: Record<string, number>
   mileage: { totalMiles: number; rate: number; deduction: number }
+  totalMiles: number
+  irsMileageRate: number
+  mileageDeduction: number
 }
