@@ -24,10 +24,10 @@ declare global {
         remove: (table: string, id: string) => Promise<{ success: boolean }>
       }
       fs?: {
-        saveFile: (opName: string, year: string, fileName: string, data: ArrayBuffer) => Promise<string>
+        saveFile: (pathSegments: string[], fileName: string, data: ArrayBuffer) => Promise<string>
         readFile: (filePath: string) => Promise<ArrayBuffer | null>
         deleteFile: (filePath: string) => Promise<boolean>
-        listFiles: (opName: string, year?: string) => Promise<string[]>
+        listFiles: (pathSegments: string[]) => Promise<string[]>
         getBaseDir: () => Promise<string>
       }
       sync?: {
@@ -154,27 +154,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [initTokenClient]);
 
   useEffect(() => {
+    const localUser = { uid: 'local-user', email: 'local@dios.studio', displayName: 'Local User' } as User;
+
     if (!isInitialized || !auth) {
-      const savedConfig = localStorage.getItem('dois_studio_config');
-      if (savedConfig) {
-        const parsed = JSON.parse(savedConfig);
-        if (parsed.firebaseConfig?.apiKey === 'dummy') {
-          logger.warn("Local Demo Mode: Bypassing Auth");
-          setUser({ uid: 'local-demo-user', email: 'demo@example.com', displayName: 'Demo User' } as User);
-          setLoading(false);
-          return;
-        }
-      }
+      setUser(localUser);
       setLoading(false);
       return;
     }
 
+    let resolved = false;
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+      resolved = true;
+      setUser(currentUser ?? localUser);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    // If onAuthStateChanged doesn't fire within 2s (e.g. unreachable auth server),
+    // fall back to local user so the app doesn't hang
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        setUser(localUser);
+        setLoading(false);
+      }
+    }, 2000);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(timeout);
+    };
   }, []);
 
   /**
@@ -233,12 +241,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async () => {
     if (!auth) {
-      const savedConfig = localStorage.getItem('dois_studio_config');
-      if (savedConfig && JSON.parse(savedConfig).firebaseConfig?.apiKey === 'dummy') {
-        setUser({ uid: 'local-demo-user', email: 'demo@example.com', displayName: 'Demo User' } as User);
-        return;
-      }
-      throw new Error('Firebase Auth not initialized');
+      // Firebase not available — set local user
+      setUser({ uid: 'local-user', email: 'local@dios.studio', displayName: 'Local User' } as User);
+      return;
     }
     try {
       const provider = new GoogleAuthProvider();

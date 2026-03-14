@@ -2,8 +2,11 @@ import { initializeApp, getApps, FirebaseApp } from 'firebase/app'
 import { getAuth, Auth } from 'firebase/auth'
 import {
   initializeFirestore,
+  getFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  memoryLocalCache,
+  disableNetwork,
   Firestore,
 } from 'firebase/firestore'
 import { getStorage, FirebaseStorage } from 'firebase/storage'
@@ -20,8 +23,8 @@ export let isInitialized = false
 export function initializeFirebase(config?: FirebaseConfig): boolean {
   const firebaseConfig = config ?? configStore.getConfig()?.firebaseConfig
 
-  if (!firebaseConfig) {
-    logger.warn('Cannot initialize Firebase: No config found.')
+  if (!firebaseConfig || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
+    logger.info('Firebase not configured — running in local-only mode.')
     return false
   }
 
@@ -33,12 +36,29 @@ export function initializeFirebase(config?: FirebaseConfig): boolean {
     auth = getAuth(app)
     storage = getStorage(app)
 
-    // Use modern persistent cache API (replaces deprecated enableIndexedDbPersistence)
-    db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager(),
-      }),
-    })
+    // Try persistent cache first, fall back to memory cache, then getFirestore
+    try {
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+      })
+    } catch {
+      try {
+        db = initializeFirestore(app, {
+          localCache: memoryLocalCache(),
+        })
+      } catch {
+        db = getFirestore(app)
+      }
+    }
+
+    // If using placeholder credentials, disable network so Firestore
+    // operates from local cache only (listeners fire immediately with empty data)
+    const placeholderKeys = new Set(['dummy', 'local', 'test'])
+    if (placeholderKeys.has(firebaseConfig.apiKey) || placeholderKeys.has(firebaseConfig.projectId)) {
+      disableNetwork(db).catch(() => {})
+    }
 
     isInitialized = true
     return true

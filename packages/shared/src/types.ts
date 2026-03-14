@@ -101,6 +101,7 @@ export interface Inspection {
 
 export interface Invoice {
   id: string
+  invoiceNumber?: string
   inspectionId: string
   operationId: string
   operationName: string

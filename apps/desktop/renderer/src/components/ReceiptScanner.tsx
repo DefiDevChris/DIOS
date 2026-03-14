@@ -5,14 +5,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { Camera, RefreshCw, Upload, X, CheckCircle, FileText, ScanLine, PenLine } from 'lucide-react';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
-import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import { db } from '@dios/shared/firebase';
 import Swal from 'sweetalert2';
 
 interface ReceiptScannerProps {
   onClose: () => void;
   onSuccess: () => void;
-  mode?: 'camera' | 'manual';
+  mode?: 'camera' | 'manual' | 'local-upload';
 }
 
 interface OcrWord {
@@ -237,20 +237,24 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
     setUploading(true);
 
     try {
-      // Save expense record to Firestore first
-      const expenseRef = await addDoc(collection(db, 'users', user.uid, 'expenses'), {
+      // Generate a deterministic doc reference so we can queue the file
+      // without awaiting the Firestore write (which hangs when network is disabled).
+      const expenseRef = doc(collection(db, 'users', user.uid, 'expenses'));
+
+      const expenseData: Record<string, unknown> = {
         vendor,
         amount: parseFloat(amount) || 0,
         date,
         notes,
-        receiptFileName: null,
-        receiptFileId: null,
-        createdAt: serverTimestamp(),
-      });
+        receiptFileName: null as string | null,
+        receiptFileId: null as string | null,
+        createdAt: new Date().toISOString(),
+      };
 
       if (imageFile) {
         const year = new Date(date).getFullYear();
         const fileName = `${Date.now()}_${imageFile.name || 'receipt.jpg'}`;
+        expenseData.receiptFileName = fileName;
 
         await queueFile(imageFile, {
           fileName,
@@ -259,11 +263,13 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
           firestoreDocPath: `users/${user.uid}/expenses/${expenseRef.id}`,
           firestoreField: 'receiptFileId',
         });
-
-        await updateDoc(doc(db, 'users', user.uid, 'expenses', expenseRef.id), {
-          receiptFileName: fileName,
-        });
       }
+
+      // Fire-and-forget: the local cache processes the write immediately;
+      // server sync happens in the background when the network is available.
+      setDoc(expenseRef, expenseData).catch((error) => {
+        logger.error('Firestore write failed:', error);
+      });
 
       triggerSync();
       setSuccess(true);
@@ -287,8 +293,9 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
   };
 
   const isManualMode = mode === 'manual';
-  const headerLabel = isManualMode ? 'Add Manually' : 'Capture Receipt';
-  const HeaderIcon = isManualMode ? PenLine : Camera;
+  const isLocalUpload = mode === 'local-upload';
+  const headerLabel = isManualMode ? 'Add Manually' : isLocalUpload ? 'Upload from Computer' : 'Capture Receipt';
+  const HeaderIcon = isManualMode ? PenLine : isLocalUpload ? Upload : Camera;
 
   return (
     <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
@@ -396,23 +403,27 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                     ) : (
                       <div className="text-center p-6 flex flex-col items-center">
                         <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 text-stone-400 shadow-sm">
-                          <Camera size={32} />
+                          {isLocalUpload ? <Upload size={32} /> : <Camera size={32} />}
                         </div>
-                        <p className="text-sm text-stone-500 font-medium mb-1">Take a photo of the receipt</p>
-                        <p className="text-xs text-stone-400 mb-4">OCR will auto-fill the form</p>
+                        <p className="text-sm text-stone-500 font-medium mb-1">
+                          {isLocalUpload ? 'Select a receipt file' : 'Take a photo of the receipt'}
+                        </p>
+                        <p className="text-xs text-stone-400 mb-4">
+                          {isLocalUpload ? 'Images and PDFs supported — OCR will auto-fill' : 'OCR will auto-fill the form'}
+                        </p>
                         <button
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
                           className="bg-stone-800 hover:bg-stone-900 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors w-full"
                         >
-                          Open Camera
+                          {isLocalUpload ? 'Browse Files' : 'Open Camera'}
                         </button>
                       </div>
                     )}
                     <input
                       type="file"
-                      accept="image/*"
-                      capture="environment"
+                      accept="image/*,.pdf"
+                      {...(!isLocalUpload ? { capture: 'environment' as const } : {})}
                       ref={fileInputRef}
                       onChange={handleFileChange}
                       className="hidden"

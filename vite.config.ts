@@ -115,6 +115,8 @@ export default defineConfig(({mode}) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@dios/shared/firebase': path.resolve(__dirname, 'packages/shared/src/firebase.ts'),
+        '@dios/shared': path.resolve(__dirname, 'packages/shared/src'),
       },
     },
     server: {

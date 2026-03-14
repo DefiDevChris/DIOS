@@ -90,8 +90,8 @@ ipcMain.handle('db:remove', (_event, table: string, id: string) => {
 })
 
 // File storage IPC handlers
-ipcMain.handle('fs:saveFile', (_event, operationName: string, year: string, fileName: string, data: ArrayBuffer) => {
-  const filePath = saveFile(operationName, year, fileName, Buffer.from(data))
+ipcMain.handle('fs:saveFile', (_event, pathSegments: string[], fileName: string, data: ArrayBuffer) => {
+  const filePath = saveFile(pathSegments, fileName, Buffer.from(data))
   return filePath
 })
 ipcMain.handle('fs:readFile', (_event, filePath: string) => {
@@ -99,8 +99,8 @@ ipcMain.handle('fs:readFile', (_event, filePath: string) => {
   return data ? data.buffer : null
 })
 ipcMain.handle('fs:deleteFile', (_event, filePath: string) => deleteFile(filePath))
-ipcMain.handle('fs:listFiles', (_event, operationName: string, year?: string) =>
-  listFiles(operationName, year)
+ipcMain.handle('fs:listFiles', (_event, pathSegments: string[]) =>
+  listFiles(pathSegments)
 )
 ipcMain.handle('fs:getBaseDir', () => getBaseDir())
 

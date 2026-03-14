@@ -15,7 +15,7 @@ export interface QueueItemMetadata {
   /**
    * Parent folder name inside "DIOS Master Inspections Database" to upload into.
    * Defaults to 'Unassigned Uploads' if omitted.
-   * e.g. 'Reports', 'Receipts', 'Agencies'
+   * e.g. 'Reports', 'Receipts', 'Unassigned Uploads'
    */
   folderName?: string;
   /** Firestore document path to update with driveFileId after upload, e.g. "users/{uid}/expenses/{docId}" */

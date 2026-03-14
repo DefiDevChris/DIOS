@@ -34,10 +34,24 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user) return
-    import('firebase/firestore').then(({ doc, getDoc }) => {
-      import('@dios/shared/firebase').then(({ db }) => {
+
+    // Check localStorage first to avoid repeated Firestore lookups
+    if (localStorage.getItem('dios_onboarding_completed') === 'true') {
+      setOnboardingChecked(true)
+      return
+    }
+
+    import('@dios/shared/firebase').then(({ db }) => {
+      if (!db) {
+        setShowOnboarding(true)
+        setOnboardingChecked(true)
+        return
+      }
+      import('firebase/firestore').then(({ doc, getDoc }) => {
         getDoc(doc(db, `users/${user.uid}/system_settings/config`)).then((snap) => {
-          if (!snap.exists() || snap.data().onboardingCompleted !== true) {
+          if (snap.exists() && snap.data().onboardingCompleted === true) {
+            localStorage.setItem('dios_onboarding_completed', 'true')
+          } else {
             setShowOnboarding(true)
           }
           setOnboardingChecked(true)
@@ -46,10 +60,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
           setOnboardingChecked(true)
         })
       })
+    }).catch(() => {
+      setShowOnboarding(true)
+      setOnboardingChecked(true)
     })
   }, [user])
 
-  if (loading || !onboardingChecked) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F9F8F6]">
         Loading...
@@ -59,6 +76,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  if (!onboardingChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F9F8F6]">
+        Loading...
+      </div>
+    )
   }
 
   return (

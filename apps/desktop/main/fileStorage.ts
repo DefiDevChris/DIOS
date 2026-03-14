@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 
-const BASE_DIR = path.join(app.getPath('home'), 'DIOS Studio')
+const BASE_DIR = path.join(app.getPath('home'), 'DIOS Studio', 'DIOS Master Inspections Database')
 
 function ensureDir(dirPath: string): void {
   if (!fs.existsSync(dirPath)) {
@@ -14,17 +14,17 @@ function sanitize(s: string): string {
   return s.replace(/[<>:"/\\|?*]/g, '_')
 }
 
-export function getFilePath(operationName: string, year: string, fileName: string): string {
-  return path.join(BASE_DIR, sanitize(operationName), sanitize(year), sanitize(fileName))
+export function getFilePath(pathSegments: string[], fileName: string): string {
+  const sanitized = pathSegments.map(sanitize)
+  return path.join(BASE_DIR, ...sanitized, sanitize(fileName))
 }
 
 export function saveFile(
-  operationName: string,
-  year: string,
+  pathSegments: string[],
   fileName: string,
   data: Buffer,
 ): string {
-  const filePath = getFilePath(operationName, year, fileName)
+  const filePath = getFilePath(pathSegments, fileName)
   ensureDir(path.dirname(filePath))
   fs.writeFileSync(filePath, data)
   return filePath
@@ -47,10 +47,8 @@ export function deleteFile(filePath: string): boolean {
   }
 }
 
-export function listFiles(operationName: string, year?: string): string[] {
-  const dir = year
-    ? path.join(BASE_DIR, sanitize(operationName), sanitize(year))
-    : path.join(BASE_DIR, sanitize(operationName))
+export function listFiles(pathSegments: string[]): string[] {
+  const dir = path.join(BASE_DIR, ...pathSegments.map(sanitize))
 
   if (!fs.existsSync(dir)) return []
 

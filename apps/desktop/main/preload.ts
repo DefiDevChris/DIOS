@@ -25,14 +25,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // File storage
   fs: {
-    saveFile: (opName: string, year: string, fileName: string, data: ArrayBuffer): Promise<string> =>
-      ipcRenderer.invoke('fs:saveFile', opName, year, fileName, data),
+    saveFile: (pathSegments: string[], fileName: string, data: ArrayBuffer): Promise<string> =>
+      ipcRenderer.invoke('fs:saveFile', pathSegments, fileName, data),
     readFile: (filePath: string): Promise<ArrayBuffer | null> =>
       ipcRenderer.invoke('fs:readFile', filePath),
     deleteFile: (filePath: string): Promise<boolean> =>
       ipcRenderer.invoke('fs:deleteFile', filePath),
-    listFiles: (opName: string, year?: string): Promise<string[]> =>
-      ipcRenderer.invoke('fs:listFiles', opName, year),
+    listFiles: (pathSegments: string[]): Promise<string[]> =>
+      ipcRenderer.invoke('fs:listFiles', pathSegments),
     getBaseDir: (): Promise<string> =>
       ipcRenderer.invoke('fs:getBaseDir'),
   },

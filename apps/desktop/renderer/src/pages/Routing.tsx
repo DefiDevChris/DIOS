@@ -50,21 +50,29 @@ export default function Routing() {
   const [tripDate, setTripDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState(false);
 
+  const [apiKeyChecked, setApiKeyChecked] = useState(false);
+
   useEffect(() => {
     const config = configStore.getConfig();
-    if (config?.googleMapsApiKey) {
-      setApiKey(config.googleMapsApiKey);
+    const key = config?.googleMapsApiKey;
+    if (key && key !== 'dummy') {
+      setApiKey(key);
     }
+    setApiKeyChecked(true);
   }, []);
 
-  // Use the google-maps loader
-  // We only load if apiKey exists to avoid console warnings, or fallback to an empty string.
-  // Although Google Maps still warns if empty string is passed, we check `!apiKey` before rendering map
+  // Resolve the key once so useJsApiLoader always sees the same value
+  const resolvedKey = apiKey && apiKey !== 'dummy' ? apiKey : '';
+
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: apiKey || '',
+    googleMapsApiKey: resolvedKey,
     libraries: ['places']
   });
+
+  if (!apiKeyChecked) {
+    return null;
+  }
 
   if (!apiKey) {
     return (

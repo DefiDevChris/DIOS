@@ -4,25 +4,10 @@ import { db } from '@dios/shared/firebase';
 import { collection, onSnapshot, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
-import { Calendar as BigCalendar, dateFnsLocalizer, View, Views } from 'react-big-calendar';
-import { format, parse, startOfWeek, getDay, addDays } from 'date-fns';
-import { enUS } from 'date-fns/locale/en-US';
-import { Calendar as CalendarIcon, RefreshCw, Loader } from 'lucide-react';
+import { format, addDays } from 'date-fns';
+import { Calendar as CalendarIcon, RefreshCw, Loader, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router';
-import 'react-big-calendar/lib/css/react-big-calendar.css';
 import Swal from 'sweetalert2';
-
-const locales = {
-  'en-US': enUS,
-};
-
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek,
-  getDay,
-  locales,
-});
 
 interface InspectionEvent {
   id: string;
@@ -34,21 +19,17 @@ interface InspectionEvent {
   googleCalendarEventId?: string;
 }
 
-interface Operation {
-  id: string;
-  name: string;
-  lat?: number;
-  lng?: number;
-}
-
 export default function Schedule() {
   const { user, googleAccessToken } = useAuth();
   const navigate = useNavigate();
   const [events, setEvents] = useState<InspectionEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [view, setView] = useState<View>(Views.MONTH);
-  const [date, setDate] = useState(new Date());
+
+  const hasGoogleToken = Boolean(
+    googleAccessToken ||
+    (typeof localStorage !== 'undefined' && localStorage.getItem('googleAccessToken') && localStorage.getItem('googleAccessToken') !== 'dummy')
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -116,11 +97,7 @@ export default function Schedule() {
     };
   }, [user]);
 
-  const handleSelectEvent = (event: InspectionEvent) => {
-    navigate(`/inspections/${event.id}`);
-  };
-
-  // Pull changes from Google Calendar → Firestore.
+  // Pull changes from Google Calendar -> Firestore.
   // Returns the number of Firestore documents that were updated.
   const fetchUpdatesFromGoogleCalendar = useCallback(async (): Promise<number> => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
@@ -138,7 +115,7 @@ export default function Schedule() {
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
-        // 404 means the event was deleted from Google Calendar — leave Firestore alone
+        // 404 means the event was deleted from Google Calendar -- leave Firestore alone
         if (!response.ok) continue;
 
         const gcalEvent = await response.json();
@@ -152,7 +129,7 @@ export default function Schedule() {
         if (!gcalStartDate) continue;
 
         const firestoreStartDate = format(event.start, 'yyyy-MM-dd');
-        if (gcalStartDate === firestoreStartDate) continue; // no drift — skip
+        if (gcalStartDate === firestoreStartDate) continue; // no drift -- skip
 
         // Build the Firestore update
         const [sy, sm, sd] = gcalStartDate.split('-').map(Number);
@@ -171,7 +148,7 @@ export default function Schedule() {
         const inspectionRef = doc(db, `users/${user.uid}/inspections`, event.id);
         await updateDoc(inspectionRef, { date: gcalStartDate, endDate: newEndDate });
         updatedCount++;
-        logger.debug(`[GCal sync] Updated inspection ${event.id}: ${firestoreStartDate} → ${gcalStartDate}`);
+        logger.debug(`[GCal sync] Updated inspection ${event.id}: ${firestoreStartDate} -> ${gcalStartDate}`);
       } catch (err) {
         logger.error(`[GCal sync] Error checking event ${event.id}:`, err);
       }
@@ -211,10 +188,10 @@ export default function Schedule() {
 
     setSyncing(true);
 
-    // Phase 1: Pull any date changes from Google Calendar → Firestore
+    // Phase 1: Pull any date changes from Google Calendar -> Firestore
     const pulledCount = await fetchUpdatesFromGoogleCalendar();
 
-    // Phase 2: Push Firestore events → Google Calendar
+    // Phase 2: Push Firestore events -> Google Calendar
     let createdCount = 0;
     let updatedCount = 0;
     let failCount = 0;
@@ -241,7 +218,7 @@ export default function Schedule() {
         let response: Response;
 
         if (storedGcalId) {
-          // Event already synced — PATCH to update in place (no duplicates)
+          // Event already synced -- PATCH to update in place (no duplicates)
           response = await fetch(
             `https://www.googleapis.com/calendar/v3/calendars/primary/events/${storedGcalId}`,
             {
@@ -257,7 +234,7 @@ export default function Schedule() {
           if (response.ok) {
             updatedCount++;
           } else if (response.status === 404) {
-            // Event was deleted from Google Calendar — fall through to recreate it
+            // Event was deleted from Google Calendar -- fall through to recreate it
             response = await fetch(
               'https://www.googleapis.com/calendar/v3/calendars/primary/events',
               {
@@ -284,7 +261,7 @@ export default function Schedule() {
             logger.error('Failed to update calendar event:', await response.text());
           }
         } else {
-          // First time syncing this inspection — POST to create
+          // First time syncing this inspection -- POST to create
           response = await fetch(
             'https://www.googleapis.com/calendar/v3/calendars/primary/events',
             {
@@ -324,35 +301,6 @@ export default function Schedule() {
     Swal.fire({ text: parts.length > 0 ? parts.join('. ') + '.' : 'Everything is already in sync.', icon: 'info' });
   };
 
-  const eventStyleGetter = (event: InspectionEvent) => {
-    let backgroundColor = '#e5e7eb'; // default gray
-    let color = '#374151';
-
-    if (event.status === 'Completed') {
-      backgroundColor = '#d1fae5'; // emerald-100
-      color = '#047857'; // emerald-700
-    } else if (event.status === 'Scheduled') {
-      backgroundColor = '#dbeafe'; // blue-100
-      color = '#1d4ed8'; // blue-700
-    } else if (event.status === 'In Progress') {
-      backgroundColor = '#fef08a'; // yellow-200
-      color = '#a16207'; // yellow-700
-    }
-
-    return {
-      style: {
-        backgroundColor,
-        color,
-        borderRadius: '8px',
-        border: 'none',
-        display: 'block',
-        fontSize: '12px',
-        fontWeight: 'bold',
-        padding: '2px 8px',
-      }
-    };
-  };
-
   return (
     <div className="animate-in fade-in duration-500 h-[calc(100vh-8rem)] flex flex-col">
       <div className="flex justify-between items-end mb-6 shrink-0">
@@ -372,80 +320,45 @@ export default function Schedule() {
           className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
         >
           {syncing ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          {syncing ? 'Syncing…' : 'Sync with Google Calendar'}
+          {syncing ? 'Syncing...' : 'Sync with Google Calendar'}
         </button>
       </div>
 
-      <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex-1 flex flex-col min-h-0">
+      <div className="bg-white rounded-3xl shadow-sm border border-stone-100 flex-1 flex flex-col min-h-0 overflow-hidden">
         {loading ? (
           <div className="flex-1 flex items-center justify-center text-stone-500">
             Loading schedule...
           </div>
+        ) : hasGoogleToken ? (
+          <iframe
+            src="https://calendar.google.com/calendar/embed?src=primary&mode=MONTH"
+            title="Google Calendar"
+            className="w-full flex-1 border-0 rounded-3xl"
+            style={{ minHeight: 0 }}
+          />
         ) : (
-          <div className="flex-1 min-h-0 calendar-container">
-            <BigCalendar
-              localizer={localizer}
-              events={events}
-              startAccessor="start"
-              endAccessor="end"
-              style={{ height: '100%' }}
-              view={view}
-              onView={(newView) => setView(newView)}
-              date={date}
-              onNavigate={(newDate) => setDate(newDate)}
-              onSelectEvent={handleSelectEvent}
-              eventPropGetter={eventStyleGetter}
-              views={['month', 'week', 'day', 'agenda']}
-              popup
-            />
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-4">
+            <div className="w-16 h-16 bg-stone-50 rounded-2xl flex items-center justify-center border border-stone-100">
+              <CalendarIcon size={32} className="text-stone-300" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-stone-700 mb-1">
+                Google Calendar not connected
+              </h2>
+              <p className="text-stone-500 text-sm max-w-md">
+                Sign in with Google in Settings to view your calendar here and sync inspection events.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/settings')}
+              className="mt-2 px-5 py-2.5 bg-[#D49A6A] text-white rounded-xl text-sm font-medium hover:bg-[#c08a5a] transition-colors flex items-center gap-2 shadow-sm"
+            >
+              <Settings size={16} />
+              Go to Settings
+            </button>
           </div>
         )}
       </div>
-
-      <style>{`
-        .calendar-container .rbc-calendar {
-          font-family: inherit;
-        }
-        .calendar-container .rbc-toolbar button {
-          color: #57534e;
-          border-color: #e7e5e4;
-          border-radius: 8px;
-          margin: 0 4px;
-        }
-        .calendar-container .rbc-toolbar button:active,
-        .calendar-container .rbc-toolbar button.rbc-active {
-          background-color: #D49A6A;
-          color: white;
-          border-color: #D49A6A;
-          box-shadow: none;
-        }
-        .calendar-container .rbc-toolbar button:hover:not(.rbc-active) {
-          background-color: #f5f5f4;
-        }
-        .calendar-container .rbc-header {
-          padding: 8px 0;
-          font-weight: 600;
-          color: #44403c;
-          border-bottom: 1px solid #e7e5e4;
-        }
-        .calendar-container .rbc-month-view,
-        .calendar-container .rbc-time-view,
-        .calendar-container .rbc-agenda-view {
-          border-color: #e7e5e4;
-          border-radius: 16px;
-          overflow: hidden;
-        }
-        .calendar-container .rbc-day-bg + .rbc-day-bg,
-        .calendar-container .rbc-month-row + .rbc-month-row {
-          border-color: #e7e5e4;
-        }
-        .calendar-container .rbc-off-range-bg {
-          background-color: #fafaf9;
-        }
-        .calendar-container .rbc-today {
-          background-color: #fff7ed;
-        }
-      `}</style>
     </div>
   );
 }

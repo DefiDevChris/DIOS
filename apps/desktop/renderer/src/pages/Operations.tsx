@@ -6,6 +6,7 @@ import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firesto
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
 import { geocodeAndSaveOperation } from '../utils/geocodingUtils';
+import { ensureOperationFolder } from '../lib/driveSync';
 import { Plus, Edit2, Trash2, Building2, MapPin, Phone, Mail, Search, X, Briefcase, ChevronRight, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import Swal from 'sweetalert2';
@@ -13,6 +14,7 @@ import Swal from 'sweetalert2';
 interface Agency {
   id: string;
   name: string;
+  operationTypes: string;
 }
 
 interface Operation {
@@ -23,6 +25,8 @@ interface Operation {
   phone: string;
   email: string;
   agencyId: string;
+  operationType: string;
+  clientId: string;
   status: 'active' | 'inactive';
   notes: string;
   lat?: number;
@@ -30,7 +34,7 @@ interface Operation {
 }
 
 export default function Operations() {
-  const { user } = useAuth();
+  const { user, googleAccessToken } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [operations, setOperations] = useState<Operation[]>([]);
@@ -53,6 +57,8 @@ export default function Operations() {
     contactName: '',
     phone: '',
     email: '',
+    operationType: '',
+    clientId: '',
   });
   const [importAgencyId, setImportAgencyId] = useState('');
 
@@ -64,6 +70,8 @@ export default function Operations() {
     phone: '',
     email: '',
     agencyId: '',
+    operationType: '',
+    clientId: '',
     status: 'active' as 'active' | 'inactive',
     notes: '',
   });
@@ -78,7 +86,7 @@ export default function Operations() {
       (snapshot) => {
         const agenciesData: Agency[] = [];
         snapshot.forEach((doc) => {
-          agenciesData.push({ id: doc.id, name: doc.data().name });
+          agenciesData.push({ id: doc.id, name: doc.data().name, operationTypes: doc.data().operationTypes || '["crop","handler"]' });
         });
         setAgencies(agenciesData);
       },
@@ -125,6 +133,8 @@ export default function Operations() {
         phone: op.phone,
         email: op.email,
         agencyId: op.agencyId,
+        operationType: op.operationType || '',
+        clientId: op.clientId || '',
         status: op.status,
         notes: op.notes,
       });
@@ -137,6 +147,8 @@ export default function Operations() {
         phone: '',
         email: '',
         agencyId: agencies.length > 0 ? agencies[0].id : '',
+        operationType: '',
+        clientId: '',
         status: 'active',
         notes: '',
       });
@@ -176,6 +188,17 @@ export default function Operations() {
         geocodeAndSaveOperation(user.uid, opId, opData.address).catch(err =>
           logger.error('Background geocoding failed:', err)
         );
+      }
+
+      // Fire-and-forget: create Google Drive folder for new operations
+      if (!editingOp) {
+        const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+        if (token && token !== 'dummy') {
+          const agencyName = agencies.find(a => a.id === formData.agencyId)?.name || 'Unknown Agency';
+          ensureOperationFolder(token, user.uid, agencyName, formData.name).catch(err => {
+            logger.error('Failed to create Drive folder for operation:', err);
+          });
+        }
       }
     } catch (error) {
       handleFirestoreError(error, editingOp ? OperationType.UPDATE : OperationType.CREATE, path);
@@ -218,6 +241,8 @@ export default function Operations() {
           phone: importMapping.phone ? (row[importMapping.phone] || '') : '',
           email: importMapping.email ? (row[importMapping.email] || '') : '',
           agencyId: importAgencyId,
+          operationType: importMapping.operationType ? (row[importMapping.operationType] || '') : '',
+          clientId: importMapping.clientId ? (row[importMapping.clientId] || '') : '',
           status: 'active',
           notes: 'Imported from CSV',
         };
@@ -268,6 +293,8 @@ export default function Operations() {
             contactName: '',
             phone: '',
             email: '',
+            operationType: '',
+            clientId: '',
           };
 
           headers.forEach(h => {
@@ -277,6 +304,8 @@ export default function Operations() {
             if (lower.includes('contact')) newMapping.contactName = h;
             if (lower.includes('phone') || lower.includes('tel')) newMapping.phone = h;
             if (lower.includes('email')) newMapping.email = h;
+            if (lower.includes('type') || lower === 'operationtype') newMapping.operationType = h;
+            if (lower.includes('client') && lower.includes('id')) newMapping.clientId = h;
           });
 
           setImportMapping(newMapping);
@@ -385,6 +414,11 @@ export default function Operations() {
                         <Briefcase size={10} />
                         {getAgencyName(op.agencyId)}
                       </span>
+                      {op.operationType && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold uppercase tracking-wider">
+                          {op.operationType}
+                        </span>
+                      )}
                     </div>
                     
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 mt-3">
@@ -510,6 +544,39 @@ export default function Operations() {
                   </div>
 
                   <div>
+                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Operation Type</label>
+                    <select
+                      name="operationType"
+                      value={formData.operationType}
+                      onChange={handleChange}
+                      className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                    >
+                      <option value="">Select type...</option>
+                      {(() => {
+                        const selectedAgency = agencies.find(a => a.id === formData.agencyId);
+                        const types: string[] = selectedAgency
+                          ? (() => { try { return JSON.parse(selectedAgency.operationTypes); } catch { return ['crop', 'handler']; } })()
+                          : ['crop', 'handler'];
+                        return types.map((t: string) => (
+                          <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                        ));
+                      })()}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Client ID</label>
+                    <input
+                      type="text"
+                      name="clientId"
+                      value={formData.clientId}
+                      onChange={handleChange}
+                      className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                      placeholder="e.g., VFO-001"
+                    />
+                  </div>
+
+                  <div>
                     <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Phone</label>
                     <input 
                       type="tel" 
@@ -627,7 +694,9 @@ export default function Operations() {
                     { key: 'contactName', label: 'Contact Name' },
                     { key: 'address', label: 'Address' },
                     { key: 'phone', label: 'Phone' },
-                    { key: 'email', label: 'Email' }
+                    { key: 'email', label: 'Email' },
+                    { key: 'operationType', label: 'Operation Type' },
+                    { key: 'clientId', label: 'Client ID' }
                   ].map(field => (
                     <div key={field.key} className="flex items-center gap-4">
                       <div className="w-1/3 text-sm font-medium text-stone-700">{field.label}</div>

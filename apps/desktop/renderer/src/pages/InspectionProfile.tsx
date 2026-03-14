@@ -5,6 +5,7 @@ import { db } from '@dios/shared/firebase';
 import { doc, onSnapshot, updateDoc, collection, getDocs, query, orderBy, setDoc, serverTimestamp } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
+import { getNextInvoiceNumber } from '../utils/invoiceNumbering';
 import {
   ArrowLeft, Calendar, Clock, FileText, Receipt, CheckCircle,
   MapPin, Building2, Save, Car, Link2, Search, X, DollarSign
@@ -333,7 +334,15 @@ export default function InspectionProfile() {
       }
 
       const invoiceData: InvoiceData = {
-        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        invoiceNumber: await (async () => {
+          const year = new Date().getFullYear();
+          const invoicesSnap = await getDocs(collection(db, `users/${user.uid}/invoices`));
+          const yearCount = invoicesSnap.docs.filter(d => {
+            const num = d.data().invoiceNumber as string;
+            return num?.startsWith(`INV-${year}-`);
+          }).length;
+          return getNextInvoiceNumber(year, yearCount);
+        })(),
         date: format(new Date(), 'MMM d, yyyy'),
         businessName: '',
         businessAddress: '',

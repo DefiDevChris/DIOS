@@ -38,6 +38,31 @@ export default function Invoices() {
   const [filter, setFilter] = useState<'All' | 'Not Complete' | 'Sent' | 'Paid'>('All');
   const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
 
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+
+  const filteredByYear = invoices.filter(inv => {
+    if (inv.status === 'Paid' && inv.paidDate) {
+      return new Date(inv.paidDate).getFullYear() === selectedYear;
+    }
+    return new Date(inv.date).getFullYear() === selectedYear;
+  });
+
+  const summaryTotals = {
+    awaitingPayment: filteredByYear.filter(i => i.status === 'Sent').reduce((sum, i) => sum + i.totalAmount, 0),
+    paid: filteredByYear.filter(i => i.status === 'Paid').reduce((sum, i) => sum + i.totalAmount, 0),
+    notCompleteCount: filteredByYear.filter(i => i.status === 'Not Complete').length,
+  };
+
+  const availableYears = [...new Set(invoices.map(inv => {
+    if (inv.status === 'Paid' && inv.paidDate) return new Date(inv.paidDate).getFullYear();
+    return new Date(inv.date).getFullYear();
+  }))].sort((a, b) => b - a);
+
+  if (!availableYears.includes(currentYear)) {
+    availableYears.unshift(currentYear);
+  }
+
   useEffect(() => {
     if (!user) return;
 
@@ -206,6 +231,40 @@ export default function Invoices() {
         </div>
       </div>
 
+      {/* Year Selector + Summary */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-2">
+          {availableYears.map(year => (
+            <button
+              key={year}
+              onClick={() => setSelectedYear(year)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                selectedYear === year
+                  ? 'bg-[#D49A6A] text-white shadow-sm'
+                  : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
+              }`}
+            >
+              {year}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-6">
+          <div className="text-center">
+            <p className="text-xs font-bold text-stone-400 uppercase tracking-wider">Awaiting</p>
+            <p className="text-lg font-bold text-amber-600">${summaryTotals.awaitingPayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs font-bold text-stone-400 uppercase tracking-wider">Paid</p>
+            <p className="text-lg font-bold text-emerald-600">${summaryTotals.paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs font-bold text-stone-400 uppercase tracking-wider">Not Complete</p>
+            <p className="text-lg font-bold text-stone-600">{summaryTotals.notCompleteCount}</p>
+          </div>
+        </div>
+      </div>
+
       {loading ? (
         <div className="p-8 text-center text-stone-500">Loading invoices...</div>
       ) : (
@@ -222,12 +281,12 @@ export default function Invoices() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {invoices.filter(inv => filter === 'All' || inv.status === filter).length === 0 ? (
+                {filteredByYear.filter(inv => filter === 'All' || inv.status === filter).length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-8 text-center text-stone-500">No invoices found matching the filter.</td>
                   </tr>
                 ) : (
-                  invoices.filter(inv => filter === 'All' || inv.status === filter).map(invoice => (
+                  filteredByYear.filter(inv => filter === 'All' || inv.status === filter).map(invoice => (
                     <tr key={invoice.id} className="hover:bg-stone-50/50 transition-colors">
                       <td className="py-4 px-6">
                         <div className="flex items-center gap-2 text-stone-900 font-medium">

@@ -194,24 +194,24 @@ export default function Insights() {
 
           {/* ── Revenue KPI cards ──────────────────────────────────────────── */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-stone-900 rounded-3xl p-6 text-white">
+            <div className="bg-[#D49A6A] rounded-3xl p-6 text-white">
               <div className="flex items-center gap-2 mb-4">
-                <TrendingUp size={18} className="text-[#D49A6A]" />
-                <span className="text-sm font-medium text-stone-400">Paid Revenue ({selectedYear})</span>
+                <TrendingUp size={18} className="text-white/70" />
+                <span className="text-sm font-medium text-white/70">Paid Revenue ({selectedYear})</span>
               </div>
               <div className="text-4xl font-extrabold text-white">
                 ${stats.totalPaidRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </div>
-              <div className="mt-2 text-sm text-stone-400">
+              <div className="mt-2 text-sm text-white/60">
                 {stats.paidInvoices} paid invoice{stats.paidInvoices !== 1 ? 's' : ''}
               </div>
             </div>
             <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
-                <Receipt size={18} className="text-amber-500" />
+                <Receipt size={18} className="text-[#c28a5c]" />
                 <span className="text-sm font-medium text-stone-500">Outstanding ({selectedYear})</span>
               </div>
-              <div className="text-4xl font-extrabold text-amber-600">
+              <div className="text-4xl font-extrabold text-[#c28a5c]">
                 ${stats.totalUnpaidRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </div>
               <div className="mt-2 text-sm text-stone-400">

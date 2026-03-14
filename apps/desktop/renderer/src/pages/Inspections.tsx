@@ -4,7 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '@dios/shared/firebase';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
-import { ClipboardCheck, Search, Calendar, ChevronRight, MapPin, Clock } from 'lucide-react';
+import { ClipboardCheck, Search, Calendar, ChevronRight, MapPin, Clock, Download } from 'lucide-react';
+import { generateCsv, downloadCsv } from '../utils/csvExport';
 
 interface Inspection {
   id: string;
@@ -100,6 +101,24 @@ export default function Inspections() {
     return matchesSearch && matchesStatus;
   });
 
+  const handleExportCsv = () => {
+    const exportData = filtered.map(insp => {
+      const op = getOperation(insp.operationId);
+      return {
+        date: insp.date,
+        operation: op?.name || 'Unknown',
+        agency: getAgencyName(op?.agencyId) || 'Unknown',
+        status: insp.status,
+      };
+    });
+    const csv = generateCsv(
+      exportData,
+      ['date', 'operation', 'agency', 'status'],
+      { date: 'Date', operation: 'Operation', agency: 'Agency', status: 'Status' }
+    );
+    downloadCsv(csv, `inspections-${new Date().getFullYear()}.csv`);
+  };
+
   const statusCounts = inspections.reduce((acc, insp) => {
     acc[insp.status] = (acc[insp.status] || 0) + 1;
     return acc;
@@ -161,6 +180,14 @@ export default function Inspections() {
             <option value="Completed">Completed</option>
             <option value="Cancelled">Cancelled</option>
           </select>
+          <button
+            onClick={handleExportCsv}
+            disabled={filtered.length === 0}
+            className="px-3 py-2 bg-white border border-stone-200 text-stone-600 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            <Download size={16} />
+            Export
+          </button>
           <div className="text-sm text-stone-500 font-medium shrink-0">
             {filtered.length} {filtered.length === 1 ? 'Inspection' : 'Inspections'}
           </div>

@@ -6,14 +6,14 @@ import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc } from 'firebas
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { configStore, logger } from '@dios/shared';
 import type { Agency, Inspection, ChecklistItem } from '@dios/shared';
-import { uploadToDrive } from '../lib/driveSync';
+import { uploadToDrive, getOperationDriveFolderUrl } from '../lib/driveSync';
 import { googleApiJson } from '@dios/shared';
 import { getStoredLocalFolder, writeLocalFile } from '../lib/localFsSync';
 import { calculateDistance, formatDistance, formatDriveTime } from '../utils/distanceUtils';
 import {
   ArrowLeft, MapPin, Phone, Mail, Building2, Calendar,
   CloudUpload, Plus, FileText, MoreVertical, Map as MapIcon,
-  ExternalLink, X, Navigation
+  ExternalLink, X, Navigation, FolderOpen
 } from 'lucide-react';
 import TasksWidget from '../components/TasksWidget';
 import Swal from 'sweetalert2';
@@ -313,6 +313,40 @@ export default function OperationProfile() {
     }
   };
 
+  const createCalendarEvent = async (inspectionId: string, operationName: string, date: string, scope?: string) => {
+    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    if (!token || token === 'dummy' || !user) return;
+
+    try {
+      const event = {
+        summary: `${operationName} — ${scope ?? 'Inspection'}`,
+        description: `Managed via DIOS Studio.\nInspection ID: ${inspectionId}`,
+        start: { date },
+        end: { date },
+      };
+      const response = await fetch(
+        'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(event),
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        // Save the event ID back to the inspection
+        await updateDoc(doc(db, `users/${user.uid}/inspections/${inspectionId}`), {
+          googleCalendarEventId: data.id,
+        });
+      }
+    } catch (error) {
+      logger.error('Failed to create calendar event:', error);
+    }
+  };
+
   // Scheduling
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -340,6 +374,8 @@ export default function OperationProfile() {
         updatedAt: new Date().toISOString(),
         syncStatus: 'pending',
       });
+
+      createCalendarEvent(newRef.id, operation.name, scheduleDate, operation.operationType).catch(() => {});
 
       await logActivity('schedule', `Inspection scheduled for ${formatDate(scheduleDate)}`);
       setIsScheduleModalOpen(false);
@@ -429,7 +465,7 @@ export default function OperationProfile() {
       try {
         const localHandle = await getStoredLocalFolder(true);
         if (localHandle) {
-          await writeLocalFile(localHandle, [agName, opName, year], file);
+          await writeLocalFile(localHandle, ['DIOS Master Inspections Database', agName, opName, year], file);
         }
       } catch (localError) {
         logger.error('Failed to mirror file locally:', localError);
@@ -753,10 +789,37 @@ export default function OperationProfile() {
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-base font-bold text-stone-900">Documents</h2>
-            <label className="text-stone-400 hover:text-[#D49A6A] transition-colors cursor-pointer">
-              <Plus size={18} />
-              <input type="file" className="hidden" onChange={handleFileUpload} />
-            </label>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  if (!googleAccessToken || !user || !operation || !agency) {
+                    Swal.fire({ text: 'Please sign in with Google to open Drive.', icon: 'info' });
+                    return;
+                  }
+                  try {
+                    const url = await getOperationDriveFolderUrl(
+                      googleAccessToken,
+                      user.uid,
+                      agency.name,
+                      operation.name,
+                      selectedYear.toString()
+                    );
+                    window.open(url, '_blank');
+                  } catch (err) {
+                    logger.error('Failed to open Drive folder:', err);
+                    Swal.fire({ text: 'Failed to open Drive folder.', icon: 'error' });
+                  }
+                }}
+                className="text-stone-400 hover:text-[#D49A6A] transition-colors p-1"
+                title="Open in Google Drive"
+              >
+                <FolderOpen size={18} />
+              </button>
+              <label className="text-stone-400 hover:text-[#D49A6A] transition-colors cursor-pointer">
+                <Plus size={18} />
+                <input type="file" className="hidden" onChange={handleFileUpload} />
+              </label>
+            </div>
           </div>
 
           {documents.length === 0 ? (
