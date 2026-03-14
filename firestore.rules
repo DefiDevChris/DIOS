@@ -168,6 +168,18 @@ service cloud.firestore {
              data.status in ['Paid', 'Unpaid'];
     }
 
+    function isValidExpense(data) {
+      return hasOnlyAllowedFields(['id', 'date', 'vendor', 'category', 'amount', 'driveFileId', 'notes', 'isOcrGenerated']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.date is string && data.date.size() > 0 && data.date.size() < 100 &&
+             data.vendor is string && data.vendor.size() > 0 && data.vendor.size() < 200 &&
+             data.category is string && data.category.size() > 0 && data.category.size() < 100 &&
+             data.amount is number && data.amount >= 0 &&
+             data.driveFileId is string && data.driveFileId.size() > 0 && data.driveFileId.size() < 200 &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 5000)) &&
+             data.isOcrGenerated is bool;
+    }
+
     function isValidTask(data) {
       return hasOnlyAllowedFields(['id', 'title', 'description', 'status', 'createdAt', 'dueDate', 'operationId', 'inspectionId']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
@@ -238,6 +250,13 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if isOwner(userId) && isValidInvoice(request.resource.data);
         allow update: if isOwner(userId) && isValidInvoice(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /expenses/{expenseId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidExpense(request.resource.data);
+        allow update: if isOwner(userId) && isValidExpense(request.resource.data);
         allow delete: if isOwner(userId);
       }
 

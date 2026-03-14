@@ -5,147 +5,411 @@
       "description": "Configurable billing entities.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "billingAddress": { "type": "string" },
-        "flatRateBaseAmount": { "type": "number" },
-        "flatRateIncludedHours": { "type": "number" },
-        "additionalHourlyRate": { "type": "number" },
-        "mileageRate": { "type": "number" },
-        "travelTimeHourlyRate": { "type": "number" },
-        "perDiemRate": { "type": "number" }
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "billingAddress": {
+          "type": "string"
+        },
+        "flatRateBaseAmount": {
+          "type": "number"
+        },
+        "flatRateIncludedHours": {
+          "type": "number"
+        },
+        "additionalHourlyRate": {
+          "type": "number"
+        },
+        "mileageRate": {
+          "type": "number"
+        },
+        "travelTimeHourlyRate": {
+          "type": "number"
+        },
+        "perDiemRate": {
+          "type": "number"
+        }
       },
-      "required": ["id", "name", "billingAddress", "flatRateBaseAmount", "flatRateIncludedHours", "additionalHourlyRate", "mileageRate"]
+      "required": [
+        "id",
+        "name",
+        "billingAddress",
+        "flatRateBaseAmount",
+        "flatRateIncludedHours",
+        "additionalHourlyRate",
+        "mileageRate"
+      ]
     },
     "Operation": {
       "title": "Operation",
       "description": "The farms/businesses being inspected.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "agencyId": { "type": "string", "description": "Reference to an Agency" },
-        "address": { "type": "string" },
-        "contactName": { "type": "string" },
-        "phone": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "status": { "type": "string", "enum": ["active", "inactive"] },
-        "notes": { "type": "string" },
-        "quickNote": { "type": "string" },
-        "inspectionStatus": { "type": "string", "enum": ["prep", "scheduled", "inspected", "report", "invoiced", "paid"] }
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "agencyId": {
+          "type": "string",
+          "description": "Reference to an Agency"
+        },
+        "address": {
+          "type": "string"
+        },
+        "contactName": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "inactive"
+          ]
+        },
+        "notes": {
+          "type": "string"
+        },
+        "quickNote": {
+          "type": "string"
+        },
+        "inspectionStatus": {
+          "type": "string",
+          "enum": [
+            "prep",
+            "scheduled",
+            "inspected",
+            "report",
+            "invoiced",
+            "paid"
+          ]
+        }
       },
-      "required": ["id", "name", "agencyId", "address", "contactName", "phone", "email", "status"]
+      "required": [
+        "id",
+        "name",
+        "agencyId",
+        "address",
+        "contactName",
+        "phone",
+        "email",
+        "status"
+      ]
     },
     "Document": {
       "title": "Document",
       "description": "Documents related to an operation.",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "size": { "type": "number" },
-        "type": { "type": "string" },
-        "uploadedAt": { "type": "string", "format": "date-time" },
-        "url": { "type": "string" }
+        "name": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        },
+        "type": {
+          "type": "string"
+        },
+        "uploadedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "url": {
+          "type": "string"
+        }
       },
-      "required": ["name", "size", "type", "uploadedAt", "url"]
+      "required": [
+        "name",
+        "size",
+        "type",
+        "uploadedAt",
+        "url"
+      ]
     },
     "Activity": {
       "title": "Activity",
       "description": "Activity log for an operation.",
       "type": "object",
       "properties": {
-        "type": { "type": "string" },
-        "description": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" }
+        "type": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["type", "description", "timestamp"]
+      "required": [
+        "type",
+        "description",
+        "timestamp"
+      ]
     },
     "Inspection": {
       "title": "Inspection",
       "description": "The actual jobs.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "operationId": { "type": "string" },
-        "date": { "type": "string", "format": "date-time" },
-        "status": { "type": "string", "enum": ["Scheduled", "In Progress", "Completed", "Cancelled"] },
-        "baseHoursLog": { "type": "number" },
-        "additionalHoursLog": { "type": "number" },
-        "milesDriven": { "type": "number" },
-        "notes": { "type": "string" },
-        "isBundled": { "type": "boolean" },
-        "totalTripDriveTime": { "type": "number" },
-        "totalTripStops": { "type": "number" },
-        "sharedDriveTime": { "type": "number" },
-        "mealsAndExpenses": { "type": "number" },
-        "perDiemDays": { "type": "number" },
-        "customLineItemName": { "type": "string" },
-        "customLineItemAmount": { "type": "number" },
-        "invoiceNotes": { "type": "string" },
-        "invoiceExceptions": { "type": "string" },
-        "bundleId": { "type": "string", "description": "Optional ID grouping multiple inspections" }
+        "id": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Scheduled",
+            "In Progress",
+            "Completed",
+            "Cancelled"
+          ]
+        },
+        "baseHoursLog": {
+          "type": "number"
+        },
+        "additionalHoursLog": {
+          "type": "number"
+        },
+        "milesDriven": {
+          "type": "number"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "isBundled": {
+          "type": "boolean"
+        },
+        "totalTripDriveTime": {
+          "type": "number"
+        },
+        "totalTripStops": {
+          "type": "number"
+        },
+        "sharedDriveTime": {
+          "type": "number"
+        },
+        "mealsAndExpenses": {
+          "type": "number"
+        },
+        "perDiemDays": {
+          "type": "number"
+        },
+        "customLineItemName": {
+          "type": "string"
+        },
+        "customLineItemAmount": {
+          "type": "number"
+        },
+        "invoiceNotes": {
+          "type": "string"
+        },
+        "invoiceExceptions": {
+          "type": "string"
+        },
+        "bundleId": {
+          "type": "string",
+          "description": "Optional ID grouping multiple inspections"
+        }
       },
-      "required": ["id", "operationId", "date", "status", "baseHoursLog", "additionalHoursLog", "milesDriven"]
+      "required": [
+        "id",
+        "operationId",
+        "date",
+        "status",
+        "baseHoursLog",
+        "additionalHoursLog",
+        "milesDriven"
+      ]
     },
     "Invoice": {
       "title": "Invoice",
       "description": "Generated bills.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "inspectionId": { "type": "string" },
-        "agencyId": { "type": "string" },
-        "totalAmount": { "type": "number" },
-        "pdfDriveId": { "type": "string" },
-        "status": { "type": "string", "enum": ["Paid", "Unpaid"] }
+        "id": {
+          "type": "string"
+        },
+        "inspectionId": {
+          "type": "string"
+        },
+        "agencyId": {
+          "type": "string"
+        },
+        "totalAmount": {
+          "type": "number"
+        },
+        "pdfDriveId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Paid",
+            "Unpaid"
+          ]
+        }
       },
-      "required": ["id", "inspectionId", "agencyId", "totalAmount", "pdfDriveId", "status"]
+      "required": [
+        "id",
+        "inspectionId",
+        "agencyId",
+        "totalAmount",
+        "pdfDriveId",
+        "status"
+      ]
     },
     "Task": {
       "title": "Task",
       "description": "Tasks or notes, potentially tagged to an operation or inspection.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "completed"] },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "dueDate": { "type": "string", "format": "date-time" },
-        "operationId": { "type": "string" },
-        "inspectionId": { "type": "string" }
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "completed"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dueDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "inspectionId": {
+          "type": "string"
+        }
       },
-      "required": ["id", "title", "status", "createdAt"]
+      "required": [
+        "id",
+        "title",
+        "status",
+        "createdAt"
+      ]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Expenses or receipts, potentially OCR generated.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "vendor": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "driveFileId": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "isOcrGenerated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "date",
+        "vendor",
+        "category",
+        "amount",
+        "driveFileId",
+        "isOcrGenerated"
+      ]
     }
   },
   "firestore": {
     "/users/{userId}/agencies/{agencyId}": {
-      "schema": { "$ref": "#/entities/Agency" },
+      "schema": {
+        "$ref": "#/entities/Agency"
+      },
       "description": "User's agencies"
     },
     "/users/{userId}/operations/{operationId}": {
-      "schema": { "$ref": "#/entities/Operation" },
+      "schema": {
+        "$ref": "#/entities/Operation"
+      },
       "description": "User's operations"
     },
     "/users/{userId}/operations/{operationId}/documents/{documentId}": {
-      "schema": { "$ref": "#/entities/Document" },
+      "schema": {
+        "$ref": "#/entities/Document"
+      },
       "description": "Documents for a specific operation"
     },
     "/users/{userId}/operations/{operationId}/activities/{activityId}": {
-      "schema": { "$ref": "#/entities/Activity" },
+      "schema": {
+        "$ref": "#/entities/Activity"
+      },
       "description": "Activities for a specific operation"
     },
     "/users/{userId}/inspections/{inspectionId}": {
-      "schema": { "$ref": "#/entities/Inspection" },
+      "schema": {
+        "$ref": "#/entities/Inspection"
+      },
       "description": "User's inspections"
     },
     "/users/{userId}/invoices/{invoiceId}": {
-      "schema": { "$ref": "#/entities/Invoice" },
+      "schema": {
+        "$ref": "#/entities/Invoice"
+      },
       "description": "User's invoices"
     },
     "/users/{userId}/tasks/{taskId}": {
-      "schema": { "$ref": "#/entities/Task" },
+      "schema": {
+        "$ref": "#/entities/Task"
+      },
       "description": "User's tasks"
+    },
+    "/users/{userId}/expenses/{expenseId}": {
+      "schema": {
+        "$ref": "#/entities/Expense"
+      },
+      "description": "User's expenses"
     }
   }
 }
