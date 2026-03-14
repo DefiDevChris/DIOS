@@ -70,6 +70,16 @@ service cloud.firestore {
     //   - pdfDriveId: string (required)
     //   - status: string (required)
     //
+    // Collection: users/{userId}/expenses
+    // Document ID: {expenseId}
+    // Fields:
+    //   - id: string (required)
+    //   - date: string (required)
+    //   - vendor: string (required)
+    //   - amount: number (required)
+    //   - notes: string (optional)
+    //   - receiptImageUrl: string (optional)
+    //
     // ===============================================================
 
     // Helper Functions
@@ -188,6 +198,16 @@ service cloud.firestore {
              (!('defaultMileageRate' in data) || (data.defaultMileageRate is number && data.defaultMileageRate >= 0));
     }
 
+    function isValidExpense(data) {
+      return hasOnlyAllowedFields(['id', 'date', 'vendor', 'amount', 'notes', 'receiptImageUrl']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.date is string && data.date.size() > 0 && data.date.size() < 100 &&
+             data.vendor is string && data.vendor.size() > 0 && data.vendor.size() < 200 &&
+             data.amount is number && data.amount >= 0 &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 5000)) &&
+             (!('receiptImageUrl' in data) || (data.receiptImageUrl is string && data.receiptImageUrl.size() < 1000));
+    }
+
     match /users/{userId} {
       // Allow read/write for the user's main profile document
       allow read, write: if isOwner(userId);
@@ -245,6 +265,13 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if isOwner(userId) && isValidTask(request.resource.data);
         allow update: if isOwner(userId) && isValidTask(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /expenses/{expenseId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidExpense(request.resource.data);
+        allow update: if isOwner(userId) && isValidExpense(request.resource.data);
         allow delete: if isOwner(userId);
       }
     }

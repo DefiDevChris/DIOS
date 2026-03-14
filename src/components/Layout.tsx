@@ -4,7 +4,7 @@ import {
   Search, CheckSquare, Settings, ChevronDown, Plus,
   LayoutDashboard, Building2, ClipboardCheck, FileText, Calendar,
   StickyNote, Mail, Map as MapIcon, BarChart2, LineChart,
-  HardDrive, Table, Leaf
+  HardDrive, Table, Leaf, Wallet
 } from 'lucide-react';
 
 export default function Layout() {
@@ -103,6 +103,7 @@ export default function Layout() {
             <NavItem to="/operations" icon={Building2} label="Operations" />
             <NavItem to="/inspections" icon={ClipboardCheck} label="Inspections" />
             <NavItem to="/invoices" icon={FileText} label="Invoices" />
+            <NavItem to="/expenses" icon={Wallet} label="Expenses" />
             <NavItem to="/schedule" icon={Calendar} label="Schedule" />
 
             <SectionHeading>Tools</SectionHeading>

@@ -19,6 +19,8 @@ interface Task {
 interface Operation {
   id: string;
   name: string;
+  lat?: number;
+  lng?: number;
 }
 
 interface Inspection {

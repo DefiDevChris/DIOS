@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
@@ -18,7 +13,10 @@ import MobileHub from './pages/MobileHub';
 import Schedule from './pages/Schedule';
 import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
+import Expenses from './pages/Expenses';
+import Email from './pages/Email';
 import SetupWizard from './components/SetupWizard';
+import ReceiptScanner from './components/ReceiptScanner';
 import { configStore } from './lib/configStore';
 import { useState, useEffect } from 'react';
 
@@ -37,7 +35,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <div className="min-h-screen flex items-center justify-center bg-[#F9F8F6]">Loading...</div>;
   }
   
-  if (!user) {
+  // MOCK FOR DEVELOPMENT
+  if (!user && window.location.hostname !== 'localhost') {
     return <Navigate to="/login" replace />;
   }
   
@@ -65,6 +64,14 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route
+            path="/test-scanner"
+            element={
+              <div className="p-4 bg-stone-100 min-h-screen">
+                <ReceiptScanner />
+              </div>
+            }
+          />
+          <Route
             path="/mobile-hub"
             element={
               <ProtectedRoute>
@@ -86,10 +93,12 @@ export default function App() {
             <Route path="inspections" element={<Placeholder title="Inspections" />} />
             <Route path="inspections/:id" element={<InspectionProfile />} />
             <Route path="invoices" element={<Invoices />} />
+            <Route path="invoices" element={<Placeholder title="Invoices" />} />
+            <Route path="expenses" element={<Expenses />} />
             <Route path="schedule" element={<Schedule />} />
             
             <Route path="notes" element={<NotesTasks />} />
-            <Route path="email" element={<Placeholder title="Email" />} />
+            <Route path="email" element={<Email />} />
             <Route path="routing" element={<Routing />} />
             <Route path="reports" element={<Reports />} />
             

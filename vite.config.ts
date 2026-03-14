@@ -15,7 +15,12 @@ export default defineConfig(({mode}) => {
         manifest: {
           name: 'DOIS Studio',
           short_name: 'DOIS Studio',
-          description: 'DOIS Studio - Field Inspector CRM & Routing Dashboard'
+          description: 'DOIS Studio - Field Inspector CRM & Routing Dashboard',
+          display: 'standalone',
+          theme_color: '#F9F8F6'
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg}']
         }
       })
     ],
