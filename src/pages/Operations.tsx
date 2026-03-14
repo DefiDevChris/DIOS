@@ -4,7 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
-import { Plus, Edit2, Trash2, Building2, MapPin, Phone, Mail, Search, X, Briefcase, ChevronRight } from 'lucide-react';
+import { Plus, Edit2, Trash2, Building2, MapPin, Phone, Mail, Search, X, Briefcase, ChevronRight, Upload } from 'lucide-react';
+import Papa from 'papaparse';
 
 interface Agency {
   id: string;
@@ -35,6 +36,19 @@ export default function Operations() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingOp, setEditingOp] = useState<Operation | null>(null);
   const [opToDelete, setOpToDelete] = useState<string | null>(null);
+
+  // Import State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importData, setImportData] = useState<any[]>([]);
+  const [importHeaders, setImportHeaders] = useState<string[]>([]);
+  const [importMapping, setImportMapping] = useState<Record<string, string>>({
+    name: '',
+    address: '',
+    contactName: '',
+    phone: '',
+    email: '',
+  });
+  const [importAgencyId, setImportAgencyId] = useState('');
 
   // Form State
   const [formData, setFormData] = useState({
@@ -161,6 +175,46 @@ export default function Operations() {
     }
   };
 
+  const handleImportMappingChange = (field: string, header: string) => {
+    setImportMapping(prev => ({ ...prev, [field]: header }));
+  };
+
+  const handleConfirmImport = async () => {
+    if (!user || !importAgencyId) return;
+
+    try {
+      // Instead of writeBatch (since we don't have it imported and setDoc is easy), we'll use Promise.all
+      // Note: For very large CSVs, a batch is better, but this works fine for typical sizes.
+      const importPromises = importData.map(row => {
+        const opId = doc(collection(db, `users/${user.uid}/operations`)).id;
+        const opData: Operation = {
+          id: opId,
+          name: importMapping.name ? (row[importMapping.name] || '') : '',
+          address: importMapping.address ? (row[importMapping.address] || '') : '',
+          contactName: importMapping.contactName ? (row[importMapping.contactName] || '') : '',
+          phone: importMapping.phone ? (row[importMapping.phone] || '') : '',
+          email: importMapping.email ? (row[importMapping.email] || '') : '',
+          agencyId: importAgencyId,
+          status: 'active',
+          notes: 'Imported from CSV',
+        };
+
+        // Only import if we at least have a name
+        if (opData.name.trim()) {
+          return setDoc(doc(db, `users/${user.uid}/operations/${opId}`), opData);
+        }
+        return Promise.resolve();
+      });
+
+      await Promise.all(importPromises);
+      setIsImportModalOpen(false);
+      setImportData([]);
+      setImportHeaders([]);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/operations`);
+    }
+  };
+
   const filteredOperations = operations.filter(op => 
     op.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     op.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -171,6 +225,52 @@ export default function Operations() {
     return agencies.find(a => a.id === agencyId)?.name || 'Unknown Agency';
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        if (results.data && results.data.length > 0) {
+          const headers = results.meta.fields || [];
+          setImportHeaders(headers);
+          setImportData(results.data);
+
+          // Auto-map columns if possible
+          const newMapping: Record<string, string> = {
+            name: '',
+            address: '',
+            contactName: '',
+            phone: '',
+            email: '',
+          };
+
+          headers.forEach(h => {
+            const lower = h.toLowerCase();
+            if (lower.includes('name') && !lower.includes('contact')) newMapping.name = h;
+            if (lower.includes('address') || lower.includes('street')) newMapping.address = h;
+            if (lower.includes('contact')) newMapping.contactName = h;
+            if (lower.includes('phone') || lower.includes('tel')) newMapping.phone = h;
+            if (lower.includes('email')) newMapping.email = h;
+          });
+
+          setImportMapping(newMapping);
+          setImportAgencyId(agencies.length > 0 ? agencies[0].id : '');
+          setIsImportModalOpen(true);
+        }
+      },
+      error: (error) => {
+        console.error('Error parsing CSV:', error);
+        alert('Failed to parse CSV file.');
+      }
+    });
+
+    // Reset file input
+    if (e.target) e.target.value = '';
+  };
+
   return (
     <div className="animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4">
@@ -178,13 +278,25 @@ export default function Operations() {
           <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">Operations Directory</h1>
           <p className="mt-2 text-stone-500 text-sm">Manage farms, processors, and businesses you inspect.</p>
         </div>
-        <button 
-          onClick={() => handleOpenModal()}
-          className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm whitespace-nowrap"
-        >
-          <Plus size={18} />
-          Add Operation
-        </button>
+        <div className="flex items-center gap-2">
+          <label className="bg-white border border-[#D49A6A] text-[#D49A6A] hover:bg-[#D49A6A]/10 cursor-pointer px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm whitespace-nowrap">
+            <Upload size={18} />
+            Import CSV
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+          </label>
+          <button
+            onClick={() => handleOpenModal()}
+            className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm whitespace-nowrap"
+          >
+            <Plus size={18} />
+            Add Operation
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden flex flex-col min-h-[500px]">
@@ -442,6 +554,90 @@ export default function Operations() {
                 className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Save Operation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center bg-stone-50/50 shrink-0">
+              <h2 className="text-lg font-bold text-stone-900 flex items-center gap-2">
+                <Upload size={20} className="text-[#D49A6A]" />
+                Import Operations
+              </h2>
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="text-stone-400 hover:text-stone-600 transition-colors p-1"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto">
+              <div className="mb-6">
+                <p className="text-sm text-stone-600 mb-4">
+                  Found {importData.length} rows in the CSV. Please map the columns below and select an agency for these operations.
+                </p>
+
+                <div className="mb-6">
+                  <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Target Certifying Agency</label>
+                  <select
+                    value={importAgencyId}
+                    onChange={(e) => setImportAgencyId(e.target.value)}
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                  >
+                    <option value="" disabled>Select an agency...</option>
+                    {agencies.map(agency => (
+                      <option key={agency.id} value={agency.id}>{agency.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <h3 className="text-sm font-bold text-stone-900 mb-3">Map CSV Columns</h3>
+                <div className="space-y-4">
+                  {[
+                    { key: 'name', label: 'Operation Name *' },
+                    { key: 'contactName', label: 'Contact Name' },
+                    { key: 'address', label: 'Address' },
+                    { key: 'phone', label: 'Phone' },
+                    { key: 'email', label: 'Email' }
+                  ].map(field => (
+                    <div key={field.key} className="flex items-center gap-4">
+                      <div className="w-1/3 text-sm font-medium text-stone-700">{field.label}</div>
+                      <select
+                        value={importMapping[field.key]}
+                        onChange={(e) => handleImportMappingChange(field.key, e.target.value)}
+                        className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                      >
+                        <option value="">-- Ignore --</option>
+                        {importHeaders.map(header => (
+                          <option key={header} value={header}>{header}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-200/50 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmImport}
+                disabled={!importAgencyId || !importMapping.name}
+                className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Import {importData.length} Operations
               </button>
             </div>
           </div>

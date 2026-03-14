@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
-import { Plus, Edit2, Trash2, Building2, DollarSign, Clock, MapPin, X, Car, Shield } from 'lucide-react';
+import { Plus, Edit2, Trash2, Building2, DollarSign, Clock, MapPin, X, Car, Shield, Download } from 'lucide-react';
 import { configStore } from '../lib/configStore';
 
 interface Agency {
@@ -138,6 +138,43 @@ export default function Settings() {
     window.location.reload();
   };
 
+  const [isBackingUp, setIsBackingUp] = useState(false);
+
+  const handleDownloadBackup = async () => {
+    if (!user) return;
+    try {
+      setIsBackingUp(true);
+      const collectionsToBackup = ['agencies', 'operations', 'inspections', 'invoices', 'expenses', 'tasks'];
+      const backupData: Record<string, any[]> = {};
+
+      for (const colName of collectionsToBackup) {
+        const querySnapshot = await getDocs(collection(db, `users/${user.uid}/${colName}`));
+        backupData[colName] = [];
+        querySnapshot.forEach((doc) => {
+          backupData[colName].push({ id: doc.id, ...doc.data() });
+        });
+      }
+
+      const jsonString = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dois_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download backup:', error);
+      alert('Failed to generate backup. Check console for details.');
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
   return (
     <div className="animate-in fade-in duration-500">
       <div className="flex justify-between items-end mb-8">
@@ -255,11 +292,29 @@ export default function Settings() {
       <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden mt-8">
         <div className="px-6 py-5 border-b border-stone-100 flex items-center gap-3 bg-stone-50/50">
           <Shield className="text-[#D49A6A]" size={20} />
-          <h2 className="text-lg font-bold text-stone-900">Integrations</h2>
+          <h2 className="text-lg font-bold text-stone-900">Data & Integrations</h2>
         </div>
 
-        <div className="p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="p-6 divide-y divide-stone-100">
+          <div className="pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-stone-900">Local Database Backup</h3>
+              <p className="text-sm text-stone-600 mt-1 max-w-xl">
+                Download a complete JSON backup of all your agencies, operations, inspections, and other configuration data stored in your database.
+              </p>
+            </div>
+
+            <button
+              onClick={handleDownloadBackup}
+              disabled={isBackingUp}
+              className="px-4 py-2 bg-stone-100 border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-200 transition-colors shrink-0 flex items-center gap-2 disabled:opacity-50"
+            >
+              <Download size={16} />
+              {isBackingUp ? 'Generating...' : 'Download JSON Backup'}
+            </button>
+          </div>
+
+          <div className="pt-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-stone-900">Bring Your Own Backend (BYOB)</h3>
               <p className="text-sm text-stone-600 mt-1 max-w-xl">
