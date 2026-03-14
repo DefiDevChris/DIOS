@@ -1,9 +1,111 @@
-import { ArrowRight, Calendar, CheckSquare, CloudUpload, Edit3, Check } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowRight, Calendar, CloudUpload, Edit3, Check, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import TasksWidget from '../components/TasksWidget';
+import { useAuth } from '../contexts/AuthContext';
+import { db } from '../firebase';
+import { collection, query, where, orderBy, limit, getDocs, addDoc } from 'firebase/firestore';
+import { useNavigate } from 'react-router';
+
+interface UpcomingInspection {
+  id: string;
+  date: string;
+  status: string;
+  operationId: string;
+  operationName: string;
+}
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const today = new Date();
+
+  const [upcomingInspections, setUpcomingInspections] = useState<UpcomingInspection[]>([]);
+  const [loadingInspections, setLoadingInspections] = useState(true);
+
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+
+  // Fetch upcoming inspections (future dates, ordered ascending)
+  useEffect(() => {
+    if (!user || !db) {
+      setLoadingInspections(false);
+      return;
+    }
+
+    const fetchUpcoming = async () => {
+      setLoadingInspections(true);
+      try {
+        const todayStr = today.toISOString().split('T')[0];
+
+        // Fetch inspections with date >= today
+        const inspSnap = await getDocs(
+          query(
+            collection(db, `users/${user.uid}/inspections`),
+            where('date', '>=', todayStr),
+            orderBy('date', 'asc'),
+            limit(5)
+          )
+        );
+
+        const rawInspections = inspSnap.docs.map(d => ({
+          id: d.id,
+          ...(d.data() as { date: string; status: string; operationId: string }),
+          operationName: '',
+        }));
+
+        if (rawInspections.length === 0) {
+          setUpcomingInspections([]);
+          return;
+        }
+
+        // Fetch all operations once and build id→name map
+        const opsSnap = await getDocs(collection(db, `users/${user.uid}/operations`));
+        const opNames: Record<string, string> = {};
+        opsSnap.forEach(d => {
+          opNames[d.id] = (d.data() as { name: string }).name;
+        });
+
+        setUpcomingInspections(
+          rawInspections.map(i => ({
+            ...i,
+            operationName: opNames[i.operationId] ?? 'Unknown Operation',
+          }))
+        );
+      } catch (error) {
+        console.error('Error fetching upcoming inspections:', error);
+      } finally {
+        setLoadingInspections(false);
+      }
+    };
+
+    fetchUpcoming();
+  }, [user]);
+
+  const handleSaveNote = async () => {
+    if (!user || !db || !noteText.trim()) return;
+    setSavingNote(true);
+    try {
+      await addDoc(collection(db, `users/${user.uid}/notes`), {
+        content: noteText.trim(),
+        createdAt: new Date().toISOString(),
+      });
+      setNoteText('');
+      setNoteSaved(true);
+      setTimeout(() => setNoteSaved(false), 2000);
+    } catch (error) {
+      console.error('Error saving note:', error);
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  const formatInspectionDate = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const d = new Date(year, month - 1, day);
+    return format(d, 'MMM d');
+  };
 
   return (
     <div className="animate-in fade-in duration-500">
@@ -21,21 +123,55 @@ export default function Dashboard() {
 
       {/* Grid Layout */}
       <div className="grid grid-cols-12 gap-6">
-        
+
         {/* Upcoming Inspections (Spans 7 cols) */}
         <div className="col-span-12 lg:col-span-7 bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex flex-col min-h-[320px]">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-base font-bold text-stone-900">Upcoming Inspections</h2>
-            <button className="text-stone-400 hover:text-[#D49A6A] transition-colors">
+            <button
+              onClick={() => navigate('/schedule')}
+              className="text-stone-400 hover:text-[#D49A6A] transition-colors"
+            >
               <ArrowRight size={18} />
             </button>
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center text-stone-400">
-            <div className="w-12 h-12 bg-stone-50 rounded-xl flex items-center justify-center mb-3 border border-stone-100">
-              <Calendar size={24} className="text-stone-300" />
+
+          {loadingInspections ? (
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 size={24} className="animate-spin text-stone-300" />
             </div>
-            <p className="text-sm font-medium">No upcoming inspections</p>
-          </div>
+          ) : upcomingInspections.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-stone-400">
+              <div className="w-12 h-12 bg-stone-50 rounded-xl flex items-center justify-center mb-3 border border-stone-100">
+                <Calendar size={24} className="text-stone-300" />
+              </div>
+              <p className="text-sm font-medium">No upcoming inspections</p>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col gap-3 overflow-y-auto">
+              {upcomingInspections.map(inspection => (
+                <div
+                  key={inspection.id}
+                  className="flex items-center gap-4 p-3 rounded-2xl bg-stone-50 border border-stone-100 hover:bg-stone-100 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/inspections/${inspection.id}`)}
+                >
+                  <div className="w-12 h-12 rounded-xl bg-white border border-stone-200 flex flex-col items-center justify-center shrink-0">
+                    <span className="text-[10px] font-bold text-[#D49A6A] uppercase leading-none">
+                      {formatInspectionDate(inspection.date).split(' ')[0]}
+                    </span>
+                    <span className="text-lg font-extrabold text-stone-900 leading-none">
+                      {formatInspectionDate(inspection.date).split(' ')[1]}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-stone-900 truncate">{inspection.operationName}</div>
+                    <div className="text-xs text-stone-500 mt-0.5">{inspection.status}</div>
+                  </div>
+                  <ArrowRight size={14} className="text-stone-300 shrink-0" />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Quick Note (Spans 5 cols) */}
@@ -45,15 +181,24 @@ export default function Dashboard() {
             <h2 className="text-base font-bold text-stone-900">Quick Note</h2>
           </div>
           <div className="flex-1 relative">
-            <textarea 
+            <textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
               className="w-full h-full resize-none bg-[#FDFCFB] border border-stone-200 border-dashed rounded-2xl p-4 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]/50 transition-all"
               placeholder="Type your notes here"
-            ></textarea>
+            />
             <div className="absolute bottom-4 right-4 flex items-center gap-2">
-              <button className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors">
-                <Edit3 size={16} />
-              </button>
-              <button className="p-1.5 text-[#D49A6A] bg-[#D49A6A]/10 rounded-md hover:bg-[#D49A6A]/20 transition-colors">
+              {noteSaved && (
+                <span className="text-[10px] text-emerald-500 font-medium uppercase tracking-wider">Saved!</span>
+              )}
+              {savingNote && (
+                <Loader2 size={14} className="animate-spin text-stone-400" />
+              )}
+              <button
+                onClick={handleSaveNote}
+                disabled={savingNote || !noteText.trim()}
+                className="p-1.5 text-[#D49A6A] bg-[#D49A6A]/10 rounded-md hover:bg-[#D49A6A]/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
                 <Check size={16} />
               </button>
             </div>

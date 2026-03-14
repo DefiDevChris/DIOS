@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { configStore } from '../lib/configStore';
 import { db } from '../firebase';
-import { collection, getDocs, doc, updateDoc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer } from '@react-google-maps/api';
 import { Map, MapPin, Truck, Save, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router';
+import { geocodeMissingOperations } from '../utils/geocodingUtils';
 
 const containerStyle = {
   width: '100%',
@@ -102,49 +103,26 @@ export default function Routing() {
     fetchOperations();
   }, [user]);
 
-  // Geocode operations missing lat/lng
+  // Geocode operations missing lat/lng — runs in the background via the shared utility
   useEffect(() => {
     if (!isLoaded || operations.length === 0 || geocoding || !user) return;
 
-    const geocodeMissing = async () => {
+    const runGeocoding = async () => {
       setGeocoding(true);
-      const geocoder = new window.google.maps.Geocoder();
-      let hasUpdates = false;
-      const updatedOps = [...operations];
-
-      for (let i = 0; i < updatedOps.length; i++) {
-        const op = updatedOps[i];
-        if (op.address && (op.lat === undefined || op.lng === undefined)) {
-          try {
-            const response = await geocoder.geocode({ address: op.address });
-            if (response.results && response.results[0]) {
-              const location = response.results[0].geometry.location;
-              op.lat = location.lat();
-              op.lng = location.lng();
-
-              // Save to Firestore
-              await updateDoc(doc(db, `users/${user.uid}/operations/${op.id}`), {
-                lat: op.lat,
-                lng: op.lng
-              });
-              hasUpdates = true;
-            }
-          } catch (error) {
-            console.error(`Geocoding error for ${op.address}:`, error);
-          }
-          // Add a small delay to avoid hitting rate limits too quickly
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-      }
-
-      if (hasUpdates) {
-        setOperations(updatedOps);
+      const updates = await geocodeMissingOperations(user.uid, operations);
+      if (updates.length > 0) {
+        setOperations(prev =>
+          prev.map(op => {
+            const updated = updates.find(u => u.id === op.id);
+            return updated ? { ...op, lat: updated.lat, lng: updated.lng } : op;
+          })
+        );
       }
       setGeocoding(false);
     };
 
-    geocodeMissing();
-  }, [isLoaded, operations, geocoding, user]);
+    runGeocoding();
+  }, [isLoaded, operations.length, user]);
 
   const toggleOperationSelection = (opId: string) => {
     const newSelected = new Set(selectedOpIds);
