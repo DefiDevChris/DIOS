@@ -34,6 +34,8 @@ export default function Layout() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [driveMasterId, setDriveMasterId] = useState<string | null>(null);
   const [driveLoading, setDriveLoading] = useState(false);
+  const [showNewMenu, setShowNewMenu] = useState(false);
+  const newMenuRef = useRef<HTMLDivElement>(null);
 
   // Global search / command palette state
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -206,14 +208,38 @@ export default function Layout() {
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-64 bg-[#F9F8F6] flex flex-col border-r border-stone-200 overflow-y-auto">
-          <div className="p-4">
-            <button className="w-full bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl py-2.5 px-4 flex items-center justify-between transition-colors shadow-sm">
+          <div className="p-4 relative" ref={newMenuRef}>
+            <button
+              onClick={() => setShowNewMenu(prev => !prev)}
+              className="w-full bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl py-2.5 px-4 flex items-center justify-between transition-colors shadow-sm"
+            >
               <div className="flex items-center gap-2 font-medium text-sm">
                 <Plus size={18} />
                 New
               </div>
-              <ChevronDown size={16} className="opacity-70" />
+              <ChevronDown
+                size={16}
+                className={`opacity-70 transition-transform duration-200 ${showNewMenu ? 'rotate-180' : ''}`}
+              />
             </button>
+
+            {showNewMenu && (
+              <div className="absolute left-4 right-4 top-full mt-1 bg-white border border-stone-200 rounded-2xl shadow-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                {newMenuItems.map(({ label, icon: Icon, path }) => (
+                  <button
+                    key={path}
+                    onClick={() => {
+                      setShowNewMenu(false);
+                      navigate(path);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-stone-700 hover:bg-stone-50 hover:text-stone-900 transition-colors first:pt-3.5 last:pb-3.5"
+                  >
+                    <Icon size={16} className="text-[#D49A6A] shrink-0" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <nav className="flex-1 px-3 pb-4 space-y-0.5">

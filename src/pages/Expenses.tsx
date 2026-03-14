@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocation } from 'react-router';
 import { collection, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Wallet, Plus, Trash2, FileText, Search, Link as LinkIcon, DollarSign, Camera, Upload, PenLine, X, FolderOpen } from 'lucide-react';
@@ -21,6 +22,7 @@ type ReceiptMode = 'camera' | 'manual' | 'uploads' | null;
 
 export default function Expenses() {
   const { user } = useAuth();
+  const location = useLocation();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -52,6 +54,14 @@ export default function Expenses() {
 
     return () => unsubscribe();
   }, [user]);
+
+  // Auto-open "Add Receipt" modal when navigated here with ?new=1
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('new') === '1') {
+      setShowModeSelect(true);
+    }
+  }, [location.search]);
 
   const confirmDelete = async () => {
     if (!user || !expenseToDelete) return;

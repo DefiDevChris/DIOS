@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -30,11 +30,12 @@ interface Operation {
 export default function Operations() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [operations, setOperations] = useState<Operation[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingOp, setEditingOp] = useState<Operation | null>(null);
@@ -102,6 +103,15 @@ export default function Operations() {
       unsubOps();
     };
   }, [user]);
+
+  // Auto-open "Add Operation" modal when navigated here with ?new=1
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('new') === '1') {
+      setIsModalOpen(true);
+      setEditingOp(null);
+    }
+  }, [location.search]);
 
   const handleOpenModal = (op?: Operation) => {
     if (op) {
