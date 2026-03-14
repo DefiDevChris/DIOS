@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { googleApiJson, googleApiFetch } from '../utils/googleApiClient';
-import { Mail, Search, MessageSquare, Plus, X, Loader2, Send } from 'lucide-react';
+import { Mail, Search, MessageSquare, Plus, X, Loader2, Send, Paperclip, Download } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 
 interface EmailThread {
@@ -40,6 +40,7 @@ export default function Email() {
   const [composeTo, setComposeTo] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  const [composeAttachments, setComposeAttachments] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -135,6 +136,18 @@ export default function Email() {
     fetchEmails();
   }, [user, googleAccessToken]);
 
+  const fileToBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // result is "data:<mime>;base64,<data>" — extract only the data portion
+        resolve(result.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!googleAccessToken || !composeTo || !composeSubject || !composeBody) return;
@@ -142,18 +155,56 @@ export default function Email() {
     try {
       setSending(true);
 
-      // Create raw email string
-      const emailContent = [
-        `To: ${composeTo}`,
-        `Subject: ${composeSubject}`,
-        'Content-Type: text/plain; charset=utf-8',
-        'MIME-Version: 1.0',
-        '',
-        composeBody
-      ].join('\r\n');
+      let rawEmail: string;
 
-      // Base64url encode
-      const encodedEmail = btoa(unescape(encodeURIComponent(emailContent)))
+      if (composeAttachments.length === 0) {
+        // Simple plain-text email
+        rawEmail = [
+          `To: ${composeTo}`,
+          `Subject: ${composeSubject}`,
+          'MIME-Version: 1.0',
+          'Content-Type: text/plain; charset=utf-8',
+          '',
+          composeBody,
+        ].join('\r\n');
+      } else {
+        // Multipart/mixed email with attachments
+        const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+        const bodyBase64 = btoa(unescape(encodeURIComponent(composeBody)));
+
+        const attachmentParts = await Promise.all(
+          composeAttachments.map(async (file) => {
+            const data = await fileToBase64(file);
+            return [
+              `--${boundary}`,
+              `Content-Type: ${file.type || 'application/octet-stream'}; name="${file.name}"`,
+              'Content-Transfer-Encoding: base64',
+              `Content-Disposition: attachment; filename="${file.name}"`,
+              '',
+              data,
+            ].join('\r\n');
+          })
+        );
+
+        rawEmail = [
+          `To: ${composeTo}`,
+          `Subject: ${composeSubject}`,
+          'MIME-Version: 1.0',
+          `Content-Type: multipart/mixed; boundary="${boundary}"`,
+          '',
+          `--${boundary}`,
+          'Content-Type: text/plain; charset=utf-8',
+          'Content-Transfer-Encoding: base64',
+          '',
+          bodyBase64,
+          ...attachmentParts,
+          `--${boundary}--`,
+        ].join('\r\n');
+      }
+
+      // Base64url encode the full RFC 2822 message
+      const encodedEmail = btoa(unescape(encodeURIComponent(rawEmail)))
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/, '');
@@ -161,7 +212,7 @@ export default function Email() {
       const response = await googleApiFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw: encodedEmail })
+        body: JSON.stringify({ raw: encodedEmail }),
       });
 
       if (!response.ok) {
@@ -172,8 +223,7 @@ export default function Email() {
       setComposeTo('');
       setComposeSubject('');
       setComposeBody('');
-
-      // Optionally refresh threads here
+      setComposeAttachments([]);
     } catch (error) {
       console.error('Error sending email:', error);
       alert('Failed to send email. Check console for details.');
@@ -190,6 +240,60 @@ export default function Email() {
   const getCleanName = (emailString: string) => {
     const match = emailString.match(/(.+) </);
     return match ? match[1].replace(/"/g, '') : emailString;
+  };
+
+  interface AttachmentMeta {
+    filename: string;
+    mimeType: string;
+    attachmentId: string;
+    messageId: string;
+    size: number;
+  }
+
+  const getAttachments = (payload: any, messageId: string): AttachmentMeta[] => {
+    const attachments: AttachmentMeta[] = [];
+
+    const walk = (parts: any[]) => {
+      for (const part of parts) {
+        if (part.filename && part.body?.attachmentId) {
+          attachments.push({
+            filename: part.filename,
+            mimeType: part.mimeType || 'application/octet-stream',
+            attachmentId: part.body.attachmentId,
+            messageId,
+            size: part.body.size || 0,
+          });
+        }
+        if (part.parts) walk(part.parts);
+      }
+    };
+
+    if (payload.parts) walk(payload.parts);
+    return attachments;
+  };
+
+  const handleDownloadAttachment = async (attachment: AttachmentMeta) => {
+    try {
+      const data = await googleApiJson<{ data: string }>(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${attachment.messageId}/attachments/${attachment.attachmentId}`
+      );
+      const base64 = data.data.replace(/-/g, '+').replace(/_/g, '/');
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: attachment.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = attachment.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download attachment:', err);
+      alert('Could not download attachment. Check console for details.');
+    }
   };
 
   const decodeBody = (payload: any): string => {
@@ -372,6 +476,27 @@ export default function Email() {
                           __html: decodeBody(msg.payload).replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
                         }}
                       />
+                      {/* Attachment list */}
+                      {(() => {
+                        const attachments = getAttachments(msg.payload, msg.id);
+                        if (attachments.length === 0) return null;
+                        return (
+                          <div className="mt-4 pt-4 border-t border-stone-100 flex flex-wrap gap-2">
+                            {attachments.map((att) => (
+                              <button
+                                key={att.attachmentId}
+                                onClick={() => handleDownloadAttachment(att)}
+                                className="flex items-center gap-2 px-3 py-2 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-xl text-xs text-stone-700 font-medium transition-colors"
+                                title={`${att.filename} (${Math.round(att.size / 1024)} KB)`}
+                              >
+                                <Download size={13} className="text-stone-400 shrink-0" />
+                                <span className="max-w-[200px] truncate">{att.filename}</span>
+                                <span className="text-stone-400 shrink-0">{Math.round(att.size / 1024)} KB</span>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -451,30 +576,71 @@ export default function Email() {
                   required
                   value={composeBody}
                   onChange={(e) => setComposeBody(e.target.value)}
-                  className="w-full h-64 bg-transparent border-none focus:ring-0 text-sm text-stone-800 p-0 resize-none font-sans"
+                  className="w-full h-48 bg-transparent border-none focus:ring-0 text-sm text-stone-800 p-0 resize-none font-sans"
                   placeholder="Write your message here..."
                 />
+
+                {/* Attachment preview chips */}
+                {composeAttachments.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {composeAttachments.map((file, idx) => (
+                      <span
+                        key={idx}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 rounded-xl text-xs text-stone-700 font-medium"
+                      >
+                        <Paperclip size={11} className="text-stone-400" />
+                        <span className="max-w-[160px] truncate">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => setComposeAttachments(prev => prev.filter((_, i) => i !== idx))}
+                          className="ml-1 text-stone-400 hover:text-stone-700"
+                        >
+                          <X size={11} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-end gap-3 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsComposerOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-200/50 rounded-xl transition-colors"
-                >
-                  Discard
-                </button>
-                <button
-                  type="submit"
-                  disabled={sending || !composeTo || !composeSubject || !composeBody}
-                  className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {sending ? (
-                    <><Loader2 size={16} className="animate-spin" /> Sending...</>
-                  ) : (
-                    <><Send size={16} /> Send Email</>
-                  )}
-                </button>
+              <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-between items-center gap-3 shrink-0">
+                {/* Attach file button */}
+                <label className="cursor-pointer flex items-center gap-2 px-3 py-2 text-sm font-medium text-stone-500 hover:text-stone-900 hover:bg-stone-200/50 rounded-xl transition-colors">
+                  <Paperclip size={15} />
+                  Attach
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files) {
+                        setComposeAttachments(prev => [...prev, ...Array.from(e.target.files!)]);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </label>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => { setIsComposerOpen(false); setComposeAttachments([]); }}
+                    className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-200/50 rounded-xl transition-colors"
+                  >
+                    Discard
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={sending || !composeTo || !composeSubject || !composeBody}
+                    className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {sending ? (
+                      <><Loader2 size={16} className="animate-spin" /> Sending...</>
+                    ) : (
+                      <><Send size={16} /> Send Email</>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

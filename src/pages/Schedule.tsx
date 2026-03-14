@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { collection, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, Views } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay, addDays } from 'date-fns';
@@ -29,6 +29,7 @@ interface InspectionEvent {
   end: Date;
   status: string;
   operationId: string;
+  googleCalendarEventId?: string;
 }
 
 interface Operation {
@@ -86,6 +87,7 @@ export default function Schedule() {
                   end: endDate,
                   status: data.status,
                   operationId: data.operationId,
+                  googleCalendarEventId: data.googleCalendarEventId,
                 });
               }
             });
@@ -130,7 +132,8 @@ export default function Schedule() {
     }
 
     setSyncing(true);
-    let successCount = 0;
+    let createdCount = 0;
+    let updatedCount = 0;
     let failCount = 0;
 
     for (const event of scheduledEvents) {
@@ -145,37 +148,96 @@ export default function Schedule() {
           end: { date: format(gcalEnd, 'yyyy-MM-dd') },
         };
 
-        const response = await fetch(
-          'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(calendarEvent),
-          }
-        );
+        // Fetch the latest googleCalendarEventId directly from Firestore to avoid stale state
+        const inspectionRef = doc(db, `users/${user!.uid}/inspections`, event.id);
+        const inspectionSnap = await getDoc(inspectionRef);
+        const storedGcalId = inspectionSnap.exists()
+          ? inspectionSnap.data().googleCalendarEventId
+          : undefined;
 
-        if (response.ok) {
-          successCount++;
+        let response: Response;
+
+        if (storedGcalId) {
+          // Event already synced — PATCH to update in place (no duplicates)
+          response = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/primary/events/${storedGcalId}`,
+            {
+              method: 'PATCH',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(calendarEvent),
+            }
+          );
+
+          if (response.ok) {
+            updatedCount++;
+          } else if (response.status === 404) {
+            // Event was deleted from Google Calendar — fall through to recreate it
+            response = await fetch(
+              'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+              {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(calendarEvent),
+              }
+            );
+
+            if (response.ok) {
+              const created = await response.json();
+              await updateDoc(inspectionRef, { googleCalendarEventId: created.id });
+              createdCount++;
+            } else {
+              failCount++;
+              console.error('Failed to recreate calendar event:', await response.text());
+            }
+            continue;
+          } else {
+            failCount++;
+            console.error('Failed to update calendar event:', await response.text());
+          }
         } else {
-          failCount++;
-          console.error('Failed to create calendar event:', await response.text());
+          // First time syncing this inspection — POST to create
+          response = await fetch(
+            'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(calendarEvent),
+            }
+          );
+
+          if (response.ok) {
+            const created = await response.json();
+            // Persist the Google Calendar Event ID to prevent future duplicates
+            await updateDoc(inspectionRef, { googleCalendarEventId: created.id });
+            createdCount++;
+          } else {
+            failCount++;
+            console.error('Failed to create calendar event:', await response.text());
+          }
         }
       } catch (err) {
         failCount++;
-        console.error('Calendar event creation error:', err);
+        console.error('Calendar sync error:', err);
       }
     }
 
     setSyncing(false);
 
-    if (failCount === 0) {
-      alert(`Successfully synced ${successCount} inspection(s) to Google Calendar!`);
-    } else {
-      alert(`Synced ${successCount} inspection(s) to Google Calendar. ${failCount} failed — check the console for details.`);
-    }
+    const parts: string[] = [];
+    if (createdCount > 0) parts.push(`Created ${createdCount} new event(s)`);
+    if (updatedCount > 0) parts.push(`Updated ${updatedCount} existing event(s)`);
+    if (failCount > 0) parts.push(`${failCount} failed — check the console`);
+
+    alert(parts.length > 0 ? parts.join('. ') + '.' : 'Nothing to sync.');
   };
 
   const eventStyleGetter = (event: InspectionEvent) => {
