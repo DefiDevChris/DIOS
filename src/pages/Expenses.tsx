@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { collection, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Wallet, Plus, Trash2, FileText, Search, Link as LinkIcon, DollarSign } from 'lucide-react';
+import { Wallet, Plus, Trash2, FileText, Search, Link as LinkIcon, DollarSign, Camera, Upload, PenLine, X, FolderOpen } from 'lucide-react';
 import ReceiptScanner from '../components/ReceiptScanner';
 import { format } from 'date-fns';
 
@@ -17,12 +17,15 @@ interface Expense {
   createdAt: any;
 }
 
+type ReceiptMode = 'camera' | 'manual' | 'uploads' | null;
+
 export default function Expenses() {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [showModeSelect, setShowModeSelect] = useState(false);
+  const [receiptMode, setReceiptMode] = useState<ReceiptMode>(null);
   const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
 
   useEffect(() => {
@@ -91,7 +94,7 @@ export default function Expenses() {
         </div>
 
         <button
-          onClick={() => setIsScannerOpen(true)}
+          onClick={() => setShowModeSelect(true)}
           className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm active:scale-95"
         >
           <Plus size={18} />
@@ -150,7 +153,7 @@ export default function Expenses() {
             </p>
             {!searchTerm && (
               <button
-                onClick={() => setIsScannerOpen(true)}
+                onClick={() => setShowModeSelect(true)}
                 className="text-[#D49A6A] font-medium hover:text-[#c28a5c] flex items-center gap-2"
               >
                 <Plus size={18} /> Add your first receipt
@@ -213,6 +216,60 @@ export default function Expenses() {
         )}
       </div>
 
+      {/* Receipt Mode Selection Modal */}
+      {showModeSelect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-stone-100">
+              <h2 className="text-lg font-bold text-stone-900">Add Receipt</h2>
+              <button onClick={() => setShowModeSelect(false)} className="text-stone-400 hover:text-stone-600 transition-colors p-1">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <button
+                onClick={() => { setShowModeSelect(false); setReceiptMode('uploads'); }}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-stone-200 hover:border-[#D49A6A] hover:bg-[#D49A6A]/5 transition-all group text-left"
+              >
+                <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500 group-hover:bg-blue-100 transition-colors shrink-0">
+                  <FolderOpen size={24} />
+                </div>
+                <div>
+                  <p className="font-bold text-stone-900 text-sm">Choose from Uploads</p>
+                  <p className="text-xs text-stone-500 mt-0.5">Pick from unassigned uploads in Google Drive</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setShowModeSelect(false); setReceiptMode('camera'); }}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-stone-200 hover:border-[#D49A6A] hover:bg-[#D49A6A]/5 transition-all group text-left"
+              >
+                <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600 group-hover:bg-emerald-100 transition-colors shrink-0">
+                  <Camera size={24} />
+                </div>
+                <div>
+                  <p className="font-bold text-stone-900 text-sm">Capture New Receipt</p>
+                  <p className="text-xs text-stone-500 mt-0.5">Take a photo — OCR will auto-fill the form</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setShowModeSelect(false); setReceiptMode('manual'); }}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-stone-200 hover:border-[#D49A6A] hover:bg-[#D49A6A]/5 transition-all group text-left"
+              >
+                <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-[#D49A6A] group-hover:bg-amber-100 transition-colors shrink-0">
+                  <PenLine size={24} />
+                </div>
+                <div>
+                  <p className="font-bold text-stone-900 text-sm">Add Manually</p>
+                  <p className="text-xs text-stone-500 mt-0.5">Enter the details by hand without a photo</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Modal */}
       {expenseToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
@@ -245,15 +302,45 @@ export default function Expenses() {
         </div>
       )}
 
-      {/* Receipt Scanner Modal */}
-      {isScannerOpen && (
+      {/* Receipt Scanner Modal (camera or manual mode) */}
+      {(receiptMode === 'camera' || receiptMode === 'manual') && (
         <ReceiptScanner
-          onClose={() => setIsScannerOpen(false)}
-          onSuccess={() => {
-            // Success is handled inside the scanner (closes itself and updates firestore)
-            // The onSnapshot listener will automatically update the UI
-          }}
+          mode={receiptMode}
+          onClose={() => setReceiptMode(null)}
+          onSuccess={() => {}}
         />
+      )}
+
+      {/* Unassigned Uploads Modal */}
+      {receiptMode === 'uploads' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-[#D49A6A] text-white">
+              <div className="flex items-center gap-2">
+                <FolderOpen size={20} />
+                <h2 className="font-bold tracking-wide text-sm uppercase">Unassigned Uploads</h2>
+              </div>
+              <button onClick={() => setReceiptMode(null)} className="text-white/80 hover:text-white transition-colors p-1">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-8 flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4 text-blue-400">
+                <Upload size={32} />
+              </div>
+              <h3 className="text-lg font-bold text-stone-900 mb-2">Connect Google Drive</h3>
+              <p className="text-sm text-stone-500 max-w-sm mb-6">
+                Link your Google Drive to browse unassigned uploads from the master folder.
+              </p>
+              <button
+                onClick={() => setReceiptMode(null)}
+                className="text-stone-500 text-sm hover:text-stone-700 underline underline-offset-2"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
