@@ -5,6 +5,7 @@ import { db, storage } from '../firebase';
 import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
+import { configStore } from '../lib/configStore';
 import { 
   ArrowLeft, Check, Search, FileText, Receipt, CheckCircle, 
   MapPin, Phone, Mail, Building2, Calendar, Edit3, CloudUpload, 
@@ -436,7 +437,7 @@ export default function OperationProfile() {
                   loading="lazy"
                   allowFullScreen
                   referrerPolicy="no-referrer-when-downgrade"
-                  src={`https://maps.google.com/maps?q=${encodeURIComponent(operation.address)}&t=&z=13&ie=UTF8&iwloc=&output=embed`}
+                  src={`https://www.google.com/maps/embed/v1/place?key=${configStore.getConfig()?.googleMapsApiKey}&q=${encodeURIComponent(operation.address)}`}
                 ></iframe>
               ) : (
                 <>
