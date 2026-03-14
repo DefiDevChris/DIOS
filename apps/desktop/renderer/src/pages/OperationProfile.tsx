@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { db, storage } from '@dios/shared/firebase';
-import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc, query, where } from 'firebase/firestore';
-import { ref } from 'firebase/storage';
+import { db } from '@dios/shared/firebase';
+import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { configStore, logger } from '@dios/shared';
 import type { Agency, Inspection, ChecklistItem } from '@dios/shared';
@@ -14,7 +13,7 @@ import { calculateDistance, formatDistance, formatDriveTime } from '../utils/dis
 import {
   ArrowLeft, MapPin, Phone, Mail, Building2, Calendar,
   CloudUpload, Plus, FileText, MoreVertical, Map as MapIcon,
-  ExternalLink, X, Clock, Navigation
+  ExternalLink, X, Navigation
 } from 'lucide-react';
 import TasksWidget from '../components/TasksWidget';
 import Swal from 'sweetalert2';
@@ -197,11 +196,12 @@ export default function OperationProfile() {
           operation.lng!,
           config.googleMapsApiKey
         );
+        if (!result) return;
 
         const opPath = `users/${user.uid}/operations/${id}`;
         await updateDoc(doc(db, opPath), {
-          cachedDistanceMiles: result.miles,
-          cachedDriveTimeMinutes: result.minutes,
+          cachedDistanceMiles: result.distanceMiles,
+          cachedDriveTimeMinutes: result.durationMinutes,
         });
       } catch (error) {
         logger.error('Distance calculation failed:', error);
