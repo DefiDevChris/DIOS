@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import Operations from './pages/Operations';
 import OperationProfile from './pages/OperationProfile';
+import Inspections from './pages/Inspections';
 import InspectionProfile from './pages/InspectionProfile';
 import Routing from './pages/Routing';
 import NotesTasks from './pages/NotesTasks';
@@ -91,7 +92,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="operations" element={<Operations />} />
             <Route path="operations/:id" element={<OperationProfile />} />
-            <Route path="inspections" element={<Placeholder title="Inspections" />} />
+            <Route path="inspections" element={<Inspections />} />
             <Route path="inspections/:id" element={<InspectionProfile />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="invoices" element={<Placeholder title="Invoices" />} />
