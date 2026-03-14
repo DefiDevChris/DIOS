@@ -22,7 +22,11 @@ const TABLES_TO_SYNC = [
   'unassigned_uploads',
 ] as const
 
-const BOOLEAN_FIELDS = new Set(['isBundled', 'reportCompleted'])
+const BOOLEAN_FIELDS = new Set([
+  'isBundled', 'reportCompleted',
+  'isFlatRate', 'mileageReimbursed', 'perTypeRatesEnabled',
+  'prepChecklistEnabled', 'reportChecklistEnabled',
+])
 
 let syncInterval: ReturnType<typeof setInterval> | null = null
 let syncState: SyncState = 'idle'

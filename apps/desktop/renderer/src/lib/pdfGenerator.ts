@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { format } from 'date-fns';
-import type { InvoiceData, InvoiceLineItem } from '@dios/shared';
+import type { InvoiceData } from '@dios/shared';
 
 export const generateInvoicePdf = (data: InvoiceData): Blob => {
   const doc = new jsPDF();

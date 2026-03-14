@@ -9,7 +9,8 @@ import { logger } from '@dios/shared';
 import { Receipt, Calendar, Building2, ExternalLink, FileDown, Loader } from 'lucide-react';
 import { Link } from 'react-router';
 import { format } from 'date-fns';
-import { generateInvoicePdf, InvoiceData } from '../lib/pdfGenerator';
+import { generateInvoicePdf } from '../lib/pdfGenerator';
+import type { InvoiceData } from '@dios/shared';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 import Swal from 'sweetalert2';
@@ -24,7 +25,9 @@ interface InvoiceRecord {
   date: string;
   inspectionDate: string;
   totalAmount: number;
-  status: 'Unpaid' | 'Paid';
+  status: 'Not Complete' | 'Sent' | 'Paid';
+  sentDate?: string;
+  paidDate?: string;
 }
 
 export default function Invoices() {
@@ -32,7 +35,7 @@ export default function Invoices() {
   const { triggerSync } = useBackgroundSync();
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'All' | 'Unpaid' | 'Paid'>('All');
+  const [filter, setFilter] = useState<'All' | 'Not Complete' | 'Sent' | 'Paid'>('All');
   const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,15 +64,15 @@ export default function Invoices() {
     return () => unsubscribe();
   }, [user]);
 
-  const toggleStatus = async (invoiceId: string, currentStatus: string) => {
+  const markPaid = async (invoiceId: string) => {
     if (!user) return;
-    const newStatus = currentStatus === 'Unpaid' ? 'Paid' : 'Unpaid';
     try {
       await updateDoc(doc(db, `users/${user.uid}/invoices/${invoiceId}`), {
-        status: newStatus
+        status: 'Paid',
+        paidDate: new Date().toISOString(),
       });
     } catch (error) {
-      logger.error("Error updating invoice status", error);
+      logger.error('Error updating invoice status', error);
     }
   };
 
@@ -105,61 +108,45 @@ export default function Invoices() {
         expSnap.forEach(d => { linkedMeals += d.data().amount || 0; });
       }
 
-      // 5. Calculate invoice totals using the same logic as InspectionProfile
-      const baseHours = inspectionData.baseHoursLog || 0;
-      const additionalHours = inspectionData.additionalHoursLog || 0;
-      const milesDriven = inspectionData.milesDriven || 0;
-      const isBundled = inspectionData.isBundled || false;
-      const totalTripDriveTime = inspectionData.totalTripDriveTime || 0;
-      const totalTripStops = inspectionData.totalTripStops || 1;
-      const mealsAndExpenses = (inspectionData.mealsAndExpenses || 0) + linkedMeals;
-      const perDiemDays = inspectionData.perDiemDays || 0;
-      const customLineItemName = inspectionData.customLineItemName || '';
-      const customLineItemAmount = inspectionData.customLineItemAmount || 0;
+      // 5. Build line items using stored lineItems or fallback
+      let lineItems = [];
+      let totalAmount = invoice.totalAmount;
 
-      const driveTime = isBundled && totalTripStops > 0
-        ? Math.round(totalTripDriveTime) / totalTripStops
-        : totalTripDriveTime;
+      if (inspectionData.lineItems) {
+        try {
+          lineItems = JSON.parse(inspectionData.lineItems);
+        } catch {
+          lineItems = [];
+        }
+      }
 
-      const baseAmount = agencyData.flatRateBaseAmount || 0;
-      const additionalHourlyRate = agencyData.additionalHourlyRate || 0;
-      const travelRate = agencyData.travelTimeHourlyRate || additionalHourlyRate;
-      const mileageRate = agencyData.mileageRate || 0.67;
-      const perDiemRate = agencyData.perDiemRate || 0;
-
-      const calculatedTotal =
-        baseAmount +
-        additionalHours * additionalHourlyRate +
-        driveTime * travelRate +
-        milesDriven * mileageRate +
-        mealsAndExpenses +
-        perDiemDays * perDiemRate +
-        customLineItemAmount;
+      if (lineItems.length === 0) {
+        // Fallback: build simple line items from legacy data
+        const baseAmount = agencyData.flatRateBaseAmount || 0;
+        if (baseAmount > 0) {
+          lineItems.push({ name: 'Inspection Fee', amount: baseAmount, details: '' });
+        }
+        totalAmount = invoice.totalAmount || baseAmount;
+      }
 
       const invoiceData: InvoiceData = {
         invoiceNumber: `INV-${invoice.id.slice(0, 6).toUpperCase()}`,
         date: invoice.date ? format(new Date(invoice.date), 'MMM d, yyyy') : format(new Date(), 'MMM d, yyyy'),
+        businessName: '',
+        businessAddress: '',
+        businessPhone: '',
+        businessEmail: '',
+        ownerName: '',
         operationName: invoice.operationName,
         operationAddress,
         agencyName: invoice.agencyName,
-        baseAmount,
-        baseHours: agencyData.flatRateIncludedHours || baseHours,
-        additionalHours,
-        additionalHourlyRate,
-        driveTime,
-        travelRate,
-        milesDriven,
-        mileageRate,
-        mealsAndExpenses,
-        perDiemDays,
-        perDiemRate,
-        customLineItemName,
-        customLineItemAmount,
-        totalAmount: calculatedTotal || invoice.totalAmount,
+        agencyAddress: agencyData.billingAddress || '',
+        lineItems,
+        totalAmount,
         notes: inspectionData.invoiceNotes || '',
       };
 
-      const pdfBlob = await generateInvoicePdf(invoiceData);
+      const pdfBlob = generateInvoicePdf(invoiceData);
       const year = invoice.date ? new Date(invoice.date).getFullYear() : new Date().getFullYear();
       const fileName = `Invoice_${invoiceData.invoiceNumber}_${invoice.operationName.replace(/\s+/g, '_')}.pdf`;
 
@@ -203,7 +190,7 @@ export default function Invoices() {
         </div>
 
         <div className="flex bg-white rounded-xl border border-stone-200 p-1 shadow-sm">
-          {(['All', 'Unpaid', 'Paid'] as const).map((f) => (
+          {(['All', 'Not Complete', 'Sent', 'Paid'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -264,16 +251,27 @@ export default function Invoices() {
                         ${invoice.totalAmount.toFixed(2)}
                       </td>
                       <td className="py-4 px-6 text-center">
-                        <button
-                          onClick={() => toggleStatus(invoice.id, invoice.status)}
-                          className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${
+                        {invoice.status === 'Sent' ? (
+                          <button
+                            onClick={() => markPaid(invoice.id)}
+                            className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                          >
+                            Mark Paid
+                          </button>
+                        ) : (
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                             invoice.status === 'Paid'
-                              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                              : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                          }`}
-                        >
-                          {invoice.status}
-                        </button>
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-stone-100 text-stone-600'
+                          }`}>
+                            {invoice.status}
+                            {invoice.status === 'Paid' && invoice.paidDate && (
+                              <span className="font-normal ml-1">
+                                {format(new Date(invoice.paidDate), 'M/d')}
+                              </span>
+                            )}
+                          </span>
+                        )}
                       </td>
                       <td className="py-4 px-6 text-right">
                         <div className="flex items-center justify-end gap-2">

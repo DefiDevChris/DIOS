@@ -9,7 +9,8 @@ import {
   ArrowLeft, Calendar, Clock, FileText, Receipt, CheckCircle,
   MapPin, Building2, Save, Car, Link2, Search, X, DollarSign
 } from 'lucide-react';
-import { generateInvoicePdf, InvoiceData } from '../lib/pdfGenerator';
+import { generateInvoicePdf } from '../lib/pdfGenerator';
+import type { InvoiceData } from '@dios/shared';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 import { format } from 'date-fns';
@@ -18,11 +19,16 @@ interface Inspection {
   id: string;
   operationId: string;
   date: string;
-  status: 'Scheduled' | 'In Progress' | 'Completed' | 'Cancelled';
+  status: 'Scheduled' | 'Prep' | 'Inspected' | 'Report' | 'Invoiced' | 'Paid' | 'Cancelled';
   scope?: string;
   baseHoursLog: number;
   additionalHoursLog: number;
+  prepHours: number;
+  onsiteHours: number;
+  reportHours: number;
   milesDriven: number;
+  calculatedMileage: number;
+  calculatedDriveTime: number;
   reportNotes?: string;
   linkedExpenses?: string[];
   notes?: string;
@@ -37,6 +43,9 @@ interface Inspection {
   invoiceNotes?: string;
   invoiceExceptions?: string;
   bundleId?: string;
+  prepChecklistData?: string;
+  reportChecklistData?: string;
+  reportCompleted?: boolean;
 }
 
 interface Expense {
@@ -60,12 +69,14 @@ interface Operation {
 interface Agency {
   id: string;
   name: string;
+  billingAddress: string;
   flatRateBaseAmount: number;
   flatRateIncludedHours: number;
   additionalHourlyRate: number;
   mileageRate: number;
   travelTimeHourlyRate?: number;
   perDiemRate?: number;
+  driveBillingMethod?: 'hourly' | 'mileage';
 }
 
 import TasksWidget from '../components/TasksWidget';
@@ -232,22 +243,24 @@ export default function InspectionProfile() {
       total += additionalHoursLog * agency.additionalHourlyRate;
     }
     
-    // Drive time
-    let driveTime = 0;
-    if (isBundled && totalTripStops > 0) {
-      driveTime = Math.round(totalTripDriveTime) / totalTripStops;
-    } else {
-      driveTime = totalTripDriveTime;
-    }
-    
-    if (driveTime > 0) {
-      const travelRate = agency.travelTimeHourlyRate || agency.additionalHourlyRate;
-      total += driveTime * travelRate;
-    }
+    // Drive billing (by hour or by mile based on agency setting)
+    const billingMethod = agency.driveBillingMethod || 'hourly';
 
-    // Miles
-    if (milesDriven > 0) {
-      total += milesDriven * agency.mileageRate;
+    if (billingMethod === 'hourly') {
+      let driveTime = 0;
+      if (isBundled && totalTripStops > 0) {
+        driveTime = Math.round(totalTripDriveTime) / totalTripStops;
+      } else {
+        driveTime = totalTripDriveTime;
+      }
+      if (driveTime > 0) {
+        const travelRate = agency.travelTimeHourlyRate || agency.additionalHourlyRate;
+        total += driveTime * travelRate;
+      }
+    } else {
+      if (milesDriven > 0) {
+        total += milesDriven * agency.mileageRate;
+      }
     }
 
     // Meals and Expenses
@@ -297,30 +310,46 @@ export default function InspectionProfile() {
       const invoiceTotal = calculateInvoiceTotal();
       const calculatedDriveTime = isBundled && totalTripStops > 0 ? Math.round(totalTripDriveTime) / totalTripStops : totalTripDriveTime;
 
+      const lineItems = [];
+      lineItems.push({ name: 'Inspection Fee', amount: agency.flatRateBaseAmount || 0, details: `${agency.flatRateIncludedHours} hrs included` });
+      if (additionalHoursLog > 0) {
+        lineItems.push({ name: 'Additional Hours', amount: additionalHoursLog * (agency.additionalHourlyRate || 0), details: `${additionalHoursLog} hrs` });
+      }
+      if (calculatedDriveTime > 0) {
+        const driveRate = agency.travelTimeHourlyRate || agency.additionalHourlyRate || 0;
+        lineItems.push({ name: 'Drive Time', amount: calculatedDriveTime * driveRate, details: `${calculatedDriveTime.toFixed(1)} hrs` });
+      }
+      if (milesDriven > 0 && agency.mileageRate > 0) {
+        lineItems.push({ name: 'Mileage', amount: milesDriven * agency.mileageRate, details: `${milesDriven} mi` });
+      }
+      if (mealsAndExpenses > 0) {
+        lineItems.push({ name: 'Meals & Expenses', amount: mealsAndExpenses });
+      }
+      if (perDiemDays > 0 && (agency.perDiemRate || 0) > 0) {
+        lineItems.push({ name: 'Per Diem', amount: perDiemDays * (agency.perDiemRate || 0), details: `${perDiemDays} days` });
+      }
+      if (customLineItemAmount > 0) {
+        lineItems.push({ name: customLineItemName || 'Custom Item', amount: customLineItemAmount });
+      }
+
       const invoiceData: InvoiceData = {
         invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
         date: format(new Date(), 'MMM d, yyyy'),
+        businessName: '',
+        businessAddress: '',
+        businessPhone: '',
+        businessEmail: '',
+        ownerName: '',
         operationName: operation.name,
         operationAddress: operation.address,
         agencyName: agency.name,
-        baseAmount: agency.flatRateBaseAmount,
-        baseHours: agency.flatRateIncludedHours,
-        additionalHours: additionalHoursLog,
-        additionalHourlyRate: agency.additionalHourlyRate,
-        driveTime: calculatedDriveTime,
-        travelRate: agency.travelTimeHourlyRate || agency.additionalHourlyRate,
-        milesDriven: milesDriven,
-        mileageRate: agency.mileageRate,
-        mealsAndExpenses: mealsAndExpenses,
-        perDiemDays: perDiemDays,
-        perDiemRate: agency.perDiemRate || 0,
-        customLineItemName: customLineItemName,
-        customLineItemAmount: customLineItemAmount,
+        agencyAddress: agency.billingAddress || '',
+        lineItems,
         totalAmount: invoiceTotal,
-        notes: invoiceNotes
+        notes: invoiceNotes,
       };
 
-      const pdfBlob = await generateInvoicePdf(invoiceData);
+      const pdfBlob = generateInvoicePdf(invoiceData);
       const fileName = `Invoice_${operation.name}_${format(new Date(inspection.date), 'yyyy-MM-dd')}.pdf`;
 
       // Attempt to save using the File System Access API
@@ -428,7 +457,7 @@ export default function InspectionProfile() {
                 Inspection: {new Date(inspection.date).toLocaleDateString()}
               </h1>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                status === 'Paid' || status === 'Invoiced' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
               }`}>
                 {status}
               </span>

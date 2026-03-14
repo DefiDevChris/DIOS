@@ -51,7 +51,11 @@ export default function Reports() {
   const [hoursData, setHoursData] = useState<HoursRow[]>([]);
   const [chartsLoading, setChartsLoading] = useState(true);
 
-  const availableYears = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
+  const currentYear = new Date().getFullYear();
+  const availableYears = Array.from({ length: 5 }, (_, i) => 2026 + i).filter((y) => y <= currentYear + 1);
+
+  const [totalMiles, setTotalMiles] = useState(0);
+  const [irsMileageRate, setIrsMileageRate] = useState(0.70);
 
   // ── Fetch chart data ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -69,20 +73,21 @@ export default function Reports() {
         const hoursLoggedByMonth = new Array(12).fill(0);
         const hoursBilledByMonth = new Array(12).fill(0);
 
-        // Invoices
+        // Invoices — cash basis: use paidDate for revenue attribution
         const invDocs = await getDocs(
           query(
             collection(db, `users/${user.uid}/invoices`),
-            where('date', '>=', startOfYear),
-            where('date', '<', endOfYear),
             where('status', '==', 'Paid')
           )
         );
         invDocs.forEach(d => {
           const data = d.data();
-          const month = new Date(data.date).getMonth();
+          const paidDate = data.paidDate || data.date;
+          if (!paidDate) return;
+          const paidDateObj = new Date(paidDate);
+          if (paidDateObj.getFullYear() !== selectedYear) return;
+          const month = paidDateObj.getMonth();
           revenueByMonth[month] += data.totalAmount || 0;
-          // Estimate billed hours from invoice if available
           hoursBilledByMonth[month] += data.hoursLogged || 0;
         });
 
@@ -104,7 +109,8 @@ export default function Reports() {
           // expenses collection may not exist yet
         }
 
-        // Hours logged from inspections
+        // Hours logged + mileage from inspections
+        let yearMiles = 0;
         try {
           const inspDocs = await getDocs(
             collection(db, `users/${user.uid}/inspections`)
@@ -112,12 +118,29 @@ export default function Reports() {
           inspDocs.forEach(d => {
             const data = d.data();
             if (!data.date) return;
+            const inspYear = new Date(data.date).getFullYear();
+            if (inspYear !== selectedYear) return;
             const month = new Date(data.date).getMonth();
-            const logged = (data.baseHoursLog || 0) + (data.additionalHoursLog || 0);
+            const logged = (data.prepHours || 0) + (data.onsiteHours || 0) + (data.reportHours || 0)
+              || ((data.baseHoursLog || 0) + (data.additionalHoursLog || 0));
             hoursLoggedByMonth[month] += logged;
+            yearMiles += data.calculatedMileage || 0;
           });
         } catch {
           // inspections may not exist
+        }
+        setTotalMiles(yearMiles);
+
+        // Load IRS mileage rate from system settings
+        try {
+          const settingsDocs = await getDocs(collection(db, `users/${user.uid}/system_settings`));
+          const configDoc = settingsDocs.docs.find((d) => d.id === 'config');
+          if (configDoc) {
+            const rate = configDoc.data().irsMileageRate;
+            if (rate) setIrsMileageRate(rate);
+          }
+        } catch {
+          // system_settings may not exist
         }
 
         const merged: MonthlyRevenueRow[] = MONTH_LABELS.map((label, i) => ({
@@ -156,16 +179,18 @@ export default function Reports() {
       const startOfYear = new Date(selectedYear, 0, 1).toISOString();
       const endOfYear = new Date(selectedYear + 1, 0, 1).toISOString();
 
+      // Cash-basis: filter by paidDate year
       const invoicesRef = collection(db, `users/${user.uid}/invoices`);
-      const qInvoices = query(
-        invoicesRef,
-        where('date', '>=', startOfYear),
-        where('date', '<', endOfYear),
-        where('status', '==', 'Paid')
-      );
+      const qInvoices = query(invoicesRef, where('status', '==', 'Paid'));
       const invoiceDocs = await getDocs(qInvoices);
       let totalIncome = 0;
-      invoiceDocs.forEach(doc => { totalIncome += doc.data().totalAmount || 0; });
+      invoiceDocs.forEach(d => {
+        const data = d.data();
+        const paidDate = data.paidDate || data.date;
+        if (!paidDate) return;
+        if (new Date(paidDate).getFullYear() !== selectedYear) return;
+        totalIncome += data.totalAmount || 0;
+      });
 
       let totalExpenses = 0;
       const expensesByCategory: Record<string, number> = {};
@@ -188,8 +213,16 @@ export default function Reports() {
         logger.warn('Expenses collection may not exist yet.');
       }
 
-      const reportData: TaxReportData = { year: selectedYear, totalIncome, expensesByCategory, totalExpenses };
-      const pdfBlob = await generateTaxReportPdf(reportData);
+      const reportData: TaxReportData = {
+        year: selectedYear,
+        totalIncome,
+        expensesByCategory,
+        totalExpenses,
+        totalMiles,
+        irsMileageRate,
+        mileageDeduction: totalMiles * irsMileageRate,
+      };
+      const pdfBlob = generateTaxReportPdf(reportData);
       const fileName = `Schedule_C_Export_${selectedYear}.pdf`;
 
       if ('showSaveFilePicker' in window) {
@@ -286,6 +319,27 @@ export default function Reports() {
             <Download size={16} />
             {generating ? 'Generating PDF…' : 'Generate PDF'}
           </button>
+        </div>
+        {/* Mileage Summary */}
+        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex flex-col hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center mb-6">
+            <TrendingUp size={24} className="text-blue-500" />
+          </div>
+          <h2 className="text-xl font-bold text-stone-900 mb-2">Mileage Summary</h2>
+          <div className="space-y-3 flex-1">
+            <div className="flex justify-between text-sm">
+              <span className="text-stone-500">Total Miles</span>
+              <span className="font-medium text-stone-900">{totalMiles.toFixed(1)} mi</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-stone-500">IRS Rate</span>
+              <span className="font-medium text-stone-900">${irsMileageRate.toFixed(2)}/mi</span>
+            </div>
+            <div className="flex justify-between text-sm pt-2 border-t border-stone-100">
+              <span className="text-stone-700 font-medium">Mileage Deduction</span>
+              <span className="font-bold text-stone-900">${(totalMiles * irsMileageRate).toFixed(2)}</span>
+            </div>
+          </div>
         </div>
       </div>
 
