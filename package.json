@@ -1,56 +1,18 @@
 {
-  "name": "react-example",
+  "name": "dios-studio",
+  "version": "1.0.0",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
-    "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@google/genai": "^1.29.0",
-    "@react-google-maps/api": "^2.20.8",
-    "@tailwindcss/vite": "^4.1.14",
-    "@types/gapi.client.gmail": "^1.0.5",
-    "@types/papaparse": "^5.5.2",
-    "@types/recharts": "^1.8.29",
-    "@vitejs/plugin-react": "^5.0.4",
-    "date-fns": "^4.1.0",
-    "dotenv": "^17.2.3",
-    "express": "^4.21.2",
-    "firebase": "^12.10.0",
-    "gapi-script": "^1.2.0",
-    "html2canvas": "^1.4.1",
-    "idb": "^8.0.3",
-    "jspdf": "^4.2.0",
-    "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
-    "papaparse": "^5.5.3",
-    "react": "^19.0.0",
-    "react-big-calendar": "^1.19.4",
-    "react-dom": "^19.0.0",
-    "react-router": "^7.13.1",
-    "recharts": "^3.8.0",
-    "sweetalert2": "^11.26.22",
-    "tesseract.js": "^7.0.0",
-    "vite": "^6.2.0"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/gapi": "^0.0.47",
-    "@types/gapi.client.calendar": "^3.0.12",
-    "@types/gapi.client.drive": "^3.0.15",
-    "@types/gapi.client.drive-v3": "^0.0.5",
-    "@types/node": "^22.14.0",
-    "@types/react-big-calendar": "^1.16.3",
-    "autoprefixer": "^10.4.21",
-    "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0",
-    "vite-plugin-pwa": "^1.2.0"
+    "dev": "npm run dev -w apps/desktop",
+    "dev:mobile": "npm run dev -w apps/mobile",
+    "build": "npm run build -w packages/shared && npm run build -w apps/desktop",
+    "build:mobile": "npm run build -w packages/shared && npm run build -w apps/mobile",
+    "lint": "npm run lint -w packages/shared && npm run lint -w apps/desktop",
+    "clean": "npm run clean -w apps/desktop && npm run clean -w apps/mobile"
   }
 }

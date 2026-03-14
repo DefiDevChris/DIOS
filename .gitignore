@@ -6,3 +6,24 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Electron
+dist-electron/
+out/
+*.exe
+*.dmg
+*.AppImage
+*.snap
+*.deb
+*.rpm
+
+# Workspace
+apps/*/node_modules/
+packages/*/node_modules/
+apps/*/dist/
+packages/*/dist/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local

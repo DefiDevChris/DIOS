@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "strict": false,
+    "paths": {
+      "@dios/shared": ["../../packages/shared/src"],
+      "@dios/shared/*": ["../../packages/shared/src/*"],
+      "@/*": ["./renderer/src/*"]
+    }
+  },
+  "include": ["renderer/src"],
+  "references": [
+    { "path": "../../packages/shared" }
+  ]
+}

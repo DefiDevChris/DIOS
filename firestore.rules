@@ -146,7 +146,7 @@ service cloud.firestore {
     }
 
     function isValidInspection(data) {
-      return hasOnlyAllowedFields(['id', 'operationId', 'date', 'status', 'baseHoursLog', 'additionalHoursLog', 'milesDriven', 'bundleId', 'notes', 'isBundled', 'totalTripDriveTime', 'totalTripStops', 'sharedDriveTime', 'mealsAndExpenses', 'perDiemDays', 'customLineItemName', 'customLineItemAmount', 'invoiceNotes', 'invoiceExceptions']) &&
+      return hasOnlyAllowedFields(['id', 'operationId', 'date', 'status', 'baseHoursLog', 'additionalHoursLog', 'milesDriven', 'bundleId', 'notes', 'isBundled', 'totalTripDriveTime', 'totalTripStops', 'sharedDriveTime', 'mealsAndExpenses', 'perDiemDays', 'customLineItemName', 'customLineItemAmount', 'invoiceNotes', 'invoiceExceptions', 'reportCompleted', 'googleCalendarEventId']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
              data.operationId is string && data.operationId.size() > 0 && data.operationId.size() < 100 &&
              data.date is string && data.date.size() > 0 && data.date.size() < 100 &&
@@ -165,7 +165,9 @@ service cloud.firestore {
              (!('customLineItemName' in data) || (data.customLineItemName is string && data.customLineItemName.size() < 200)) &&
              (!('customLineItemAmount' in data) || (data.customLineItemAmount is number)) &&
              (!('invoiceNotes' in data) || (data.invoiceNotes is string && data.invoiceNotes.size() < 5000)) &&
-             (!('invoiceExceptions' in data) || (data.invoiceExceptions is string && data.invoiceExceptions.size() < 5000));
+             (!('invoiceExceptions' in data) || (data.invoiceExceptions is string && data.invoiceExceptions.size() < 5000)) &&
+             (!('reportCompleted' in data) || data.reportCompleted is bool) &&
+             (!('googleCalendarEventId' in data) || (data.googleCalendarEventId is string && data.googleCalendarEventId.size() < 200));
     }
 
     function isValidInvoice(data) {
@@ -199,13 +201,16 @@ service cloud.firestore {
     }
 
     function isValidExpense(data) {
-      return hasOnlyAllowedFields(['id', 'date', 'vendor', 'amount', 'notes', 'receiptImageUrl']) &&
+      return hasOnlyAllowedFields(['id', 'date', 'vendor', 'amount', 'notes', 'receiptImageUrl', 'receiptFileId', 'inspectionId', 'category']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
              data.date is string && data.date.size() > 0 && data.date.size() < 100 &&
              data.vendor is string && data.vendor.size() > 0 && data.vendor.size() < 200 &&
              data.amount is number && data.amount >= 0 &&
              (!('notes' in data) || (data.notes is string && data.notes.size() < 5000)) &&
-             (!('receiptImageUrl' in data) || (data.receiptImageUrl is string && data.receiptImageUrl.size() < 1000));
+             (!('receiptImageUrl' in data) || (data.receiptImageUrl is string && data.receiptImageUrl.size() < 1000)) &&
+             (!('receiptFileId' in data) || (data.receiptFileId is string && data.receiptFileId.size() < 200)) &&
+             (!('inspectionId' in data) || (data.inspectionId is string && data.inspectionId.size() < 100)) &&
+             (!('category' in data) || (data.category is string && data.category.size() < 100));
     }
 
     match /users/{userId} {
@@ -272,6 +277,19 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if isOwner(userId) && isValidExpense(request.resource.data);
         allow update: if isOwner(userId) && isValidExpense(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /notes/{noteId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /unassigned_uploads/{uploadId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId);
+        allow update: if isOwner(userId);
         allow delete: if isOwner(userId);
       }
     }
