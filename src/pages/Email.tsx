@@ -36,6 +36,9 @@ export default function Email() {
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [operationsEmails, setOperationsEmails] = useState<string[]>([]);
 
+  // Thread list search
+  const [emailSearchQuery, setEmailSearchQuery] = useState('');
+
   // Composer state
   const [composeTo, setComposeTo] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
@@ -277,6 +280,8 @@ export default function Email() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
               <input
                 type="text"
+                value={emailSearchQuery}
+                onChange={e => setEmailSearchQuery(e.target.value)}
                 placeholder="Search emails..."
                 className="w-full bg-white border border-stone-200 focus:border-[#D49A6A] focus:ring-2 focus:ring-[#D49A6A]/20 rounded-xl py-2 pl-9 pr-4 text-sm transition-all"
               />
@@ -296,7 +301,16 @@ export default function Email() {
               </div>
             ) : (
               <div className="divide-y divide-stone-100">
-                {threads.map(thread => {
+                {threads.filter(thread => {
+                  if (!emailSearchQuery.trim()) return true;
+                  const q = emailSearchQuery.toLowerCase();
+                  const latestMsg = thread.messages[0];
+                  return (
+                    latestMsg.subject?.toLowerCase().includes(q) ||
+                    latestMsg.from?.toLowerCase().includes(q) ||
+                    latestMsg.snippet?.toLowerCase().includes(q)
+                  );
+                }).map(thread => {
                   const latestMsg = thread.messages[0];
                   const isSelected = selectedThread?.id === thread.id;
 

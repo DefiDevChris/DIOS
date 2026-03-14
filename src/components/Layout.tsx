@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Outlet, Link, useLocation, useNavigate } from 'react-router';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Outlet, Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -7,15 +7,41 @@ import {
   Search, CheckSquare, Settings, ChevronDown, Plus,
   LayoutDashboard, Building2, ClipboardCheck, FileText, Calendar,
   StickyNote, Mail, Map as MapIcon, BarChart2, LineChart,
-  HardDrive, ExternalLink, Wallet
+  HardDrive, ExternalLink, Wallet, X
 } from 'lucide-react';
 import LeafLogo from './LeafLogo';
+
+// All navigable items available in the command palette
+const SEARCH_ITEMS = [
+  { label: 'Dashboard', to: '/', icon: LayoutDashboard, category: 'Navigation' },
+  { label: 'Operations', to: '/operations', icon: Building2, category: 'Navigation' },
+  { label: 'Inspections', to: '/inspections', icon: ClipboardCheck, category: 'Navigation' },
+  { label: 'Invoices', to: '/invoices', icon: FileText, category: 'Navigation' },
+  { label: 'Expenses', to: '/expenses', icon: Wallet, category: 'Navigation' },
+  { label: 'Schedule', to: '/schedule', icon: Calendar, category: 'Navigation' },
+  { label: 'Notes & Tasks', to: '/notes', icon: StickyNote, category: 'Tools' },
+  { label: 'Email', to: '/email', icon: Mail, category: 'Tools' },
+  { label: 'Map', to: '/routing', icon: MapIcon, category: 'Tools' },
+  { label: 'Reports', to: '/reports', icon: BarChart2, category: 'Tools' },
+  { label: 'Insights', to: '/insights', icon: LineChart, category: 'Analytics' },
+  { label: 'Settings', to: '/settings', icon: Settings, category: 'System' },
+];
 
 export default function Layout() {
   const { user, googleAccessToken, signInWithGoogle } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [driveMasterId, setDriveMasterId] = useState<string | null>(null);
   const [driveLoading, setDriveLoading] = useState(false);
+
+  // Global search / command palette state
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Year filter — persisted in the URL search param ?year=
+  const selectedYear = searchParams.get('year') ?? '2026';
 
   // Detect local demo mode
   const isLocalDemo = (() => {
@@ -42,18 +68,54 @@ export default function Layout() {
     fetchDriveFolders();
   }, [user, isLocalDemo]);
 
+  // ⌘K / Ctrl+K listener to open the command palette
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      setIsSearchOpen(prev => !prev);
+    }
+    if (e.key === 'Escape') {
+      setIsSearchOpen(false);
+      setSearchQuery('');
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
+
+  // Auto-focus the search input when the palette opens
+  useEffect(() => {
+    if (isSearchOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    } else {
+      setSearchQuery('');
+    }
+  }, [isSearchOpen]);
+
+  const filteredSearchItems = searchQuery.trim()
+    ? SEARCH_ITEMS.filter(item =>
+        item.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.category.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : SEARCH_ITEMS;
+
+  const handleSearchSelect = (to: string) => {
+    navigate(to);
+    setIsSearchOpen(false);
+    setSearchQuery('');
+  };
+
   const handleDriveClick = async () => {
     if (isLocalDemo) {
-      // Local-only mode: prompt Drive connection setup (sign in with Google)
       alert('Connect Google Drive by signing in with your Google account in Settings.');
       return;
     }
     if (driveMasterId && googleAccessToken) {
-      // Open master Drive folder in new tab
       window.open(`https://drive.google.com/drive/folders/${driveMasterId}`, '_blank', 'noopener,noreferrer');
       return;
     }
-    // Not yet connected — trigger Google sign-in to get Drive access
     setDriveLoading(true);
     try {
       await signInWithGoogle();
@@ -62,6 +124,14 @@ export default function Layout() {
     } finally {
       setDriveLoading(false);
     }
+  };
+
+  const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('year', e.target.value);
+      return next;
+    });
   };
 
   const NavItem = ({ to, icon: Icon, label, active }: { to: string, icon: any, label: string, active?: boolean }) => {
@@ -101,8 +171,10 @@ export default function Layout() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
             <input
               type="text"
+              readOnly
+              onClick={() => setIsSearchOpen(true)}
               placeholder="Search..."
-              className="w-full bg-stone-100 border-transparent focus:bg-white focus:border-stone-300 focus:ring-2 focus:ring-[#D49A6A]/20 rounded-full py-2 pl-10 pr-12 text-sm transition-all"
+              className="w-full bg-stone-100 border-transparent focus:bg-white focus:border-stone-300 focus:ring-2 focus:ring-[#D49A6A]/20 rounded-full py-2 pl-10 pr-12 text-sm transition-all cursor-pointer"
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
               <kbd className="hidden sm:inline-block border border-stone-200 rounded px-1.5 text-[10px] font-medium text-stone-400 bg-white">
@@ -113,10 +185,18 @@ export default function Layout() {
         </div>
 
         <div className="flex items-center gap-4 w-64 justify-end">
-          <button className="text-stone-400 hover:text-stone-600 transition-colors">
+          <button
+            onClick={() => navigate('/notes')}
+            className="text-stone-400 hover:text-stone-600 transition-colors"
+            title="Notes & Tasks"
+          >
             <CheckSquare size={20} />
           </button>
-          <button className="text-stone-400 hover:text-stone-600 transition-colors">
+          <button
+            onClick={() => navigate('/settings')}
+            className="text-stone-400 hover:text-stone-600 transition-colors"
+            title="Settings"
+          >
             <Settings size={20} />
           </button>
           <SignOutButton />
@@ -172,9 +252,13 @@ export default function Layout() {
           </nav>
 
           <div className="p-4 border-t border-stone-200">
-            <select className="w-full bg-white border border-stone-200 text-stone-700 text-sm rounded-lg focus:ring-[#D49A6A] focus:border-[#D49A6A] block p-2">
-              <option>2026 (current)</option>
-              <option>2025</option>
+            <select
+              value={selectedYear}
+              onChange={handleYearChange}
+              className="w-full bg-white border border-stone-200 text-stone-700 text-sm rounded-lg focus:ring-[#D49A6A] focus:border-[#D49A6A] block p-2"
+            >
+              <option value="2026">2026 (current)</option>
+              <option value="2025">2025</option>
             </select>
           </div>
         </aside>
@@ -186,6 +270,74 @@ export default function Layout() {
           </div>
         </main>
       </div>
+
+      {/* Global Search / Command Palette Modal */}
+      {isSearchOpen && (
+        <div
+          className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm z-50 flex items-start justify-center pt-[15vh] p-4"
+          onClick={() => { setIsSearchOpen(false); setSearchQuery(''); }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-200"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Search Input */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-stone-100">
+              <Search size={18} className="text-stone-400 shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search operations, inspections, clients..."
+                className="flex-1 bg-transparent border-none focus:ring-0 text-stone-900 text-sm placeholder:text-stone-400 outline-none"
+              />
+              <button
+                onClick={() => { setIsSearchOpen(false); setSearchQuery(''); }}
+                className="text-stone-400 hover:text-stone-600 transition-colors p-1 rounded-lg hover:bg-stone-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Results */}
+            <div className="max-h-80 overflow-y-auto py-2">
+              {filteredSearchItems.length === 0 ? (
+                <p className="text-center text-stone-400 text-sm py-8">No results found</p>
+              ) : (
+                (() => {
+                  const categories = [...new Set(filteredSearchItems.map(i => i.category))];
+                  return categories.map(category => (
+                    <div key={category}>
+                      <p className="px-4 py-1.5 text-[10px] font-bold text-stone-400 uppercase tracking-wider">
+                        {category}
+                      </p>
+                      {filteredSearchItems
+                        .filter(item => item.category === category)
+                        .map(item => (
+                          <button
+                            key={item.to}
+                            onClick={() => handleSearchSelect(item.to)}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-stone-700 hover:bg-stone-50 hover:text-stone-900 transition-colors text-left"
+                          >
+                            <item.icon size={16} className="text-stone-400 shrink-0" />
+                            {item.label}
+                          </button>
+                        ))}
+                    </div>
+                  ));
+                })()
+              )}
+            </div>
+
+            {/* Footer hint */}
+            <div className="px-4 py-2.5 border-t border-stone-100 flex items-center gap-4 text-[11px] text-stone-400">
+              <span><kbd className="border border-stone-200 rounded px-1 py-0.5 text-[10px] bg-stone-50">↵</kbd> to select</span>
+              <span><kbd className="border border-stone-200 rounded px-1 py-0.5 text-[10px] bg-stone-50">Esc</kbd> to close</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
