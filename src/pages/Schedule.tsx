@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
@@ -119,6 +119,82 @@ export default function Schedule() {
     navigate(`/inspections/${event.id}`);
   };
 
+  // Pull changes from Google Calendar → Firestore.
+  // Returns the number of Firestore documents that were updated.
+  const fetchUpdatesFromGoogleCalendar = useCallback(async (): Promise<number> => {
+    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    if (!token || token === 'dummy' || !user) return 0;
+
+    const syncableEvents = events.filter(e => e.status === 'Scheduled' && e.googleCalendarEventId);
+    if (syncableEvents.length === 0) return 0;
+
+    let updatedCount = 0;
+
+    for (const event of syncableEvents) {
+      try {
+        const response = await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${event.googleCalendarEventId}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        // 404 means the event was deleted from Google Calendar — leave Firestore alone
+        if (!response.ok) continue;
+
+        const gcalEvent = await response.json();
+
+        // All-day events expose start.date; timed events expose start.dateTime
+        const gcalStartDate: string | undefined =
+          gcalEvent.start?.date ?? gcalEvent.start?.dateTime?.split('T')[0];
+        const gcalEndDateRaw: string | undefined =
+          gcalEvent.end?.date ?? gcalEvent.end?.dateTime?.split('T')[0];
+
+        if (!gcalStartDate) continue;
+
+        const firestoreStartDate = format(event.start, 'yyyy-MM-dd');
+        if (gcalStartDate === firestoreStartDate) continue; // no drift — skip
+
+        // Build the Firestore update
+        const [sy, sm, sd] = gcalStartDate.split('-').map(Number);
+        const newStart = new Date(sy, sm - 1, sd);
+
+        // Google Calendar all-day end dates are exclusive (day after last day),
+        // so subtract 1 day to get the inclusive end stored in Firestore.
+        let newEndDate = format(newStart, 'yyyy-MM-dd'); // fallback: single-day
+        if (gcalEndDateRaw) {
+          const [ey, em, ed] = gcalEndDateRaw.split('-').map(Number);
+          const gcalEndExclusive = new Date(ey, em - 1, ed);
+          const inclusiveEnd = addDays(gcalEndExclusive, -1);
+          newEndDate = format(inclusiveEnd, 'yyyy-MM-dd');
+        }
+
+        const inspectionRef = doc(db, `users/${user.uid}/inspections`, event.id);
+        await updateDoc(inspectionRef, { date: gcalStartDate, endDate: newEndDate });
+        updatedCount++;
+        console.info(`[GCal sync] Updated inspection ${event.id}: ${firestoreStartDate} → ${gcalStartDate}`);
+      } catch (err) {
+        console.error(`[GCal sync] Error checking event ${event.id}:`, err);
+      }
+    }
+
+    return updatedCount;
+  }, [events, googleAccessToken, user]);
+
+  // Run a silent pull-sync once after the initial event load completes.
+  const initialSyncRan = useRef(false);
+  useEffect(() => {
+    if (loading || initialSyncRan.current) return;
+    initialSyncRan.current = true;
+
+    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    if (!token || token === 'dummy') return;
+
+    fetchUpdatesFromGoogleCalendar().then(count => {
+      if (count > 0) {
+        console.info(`[GCal sync] Auto-updated ${count} inspection(s) from Google Calendar on mount.`);
+      }
+    });
+  }, [loading, fetchUpdatesFromGoogleCalendar, googleAccessToken]);
+
   const handleGoogleCalendarSync = async () => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
     if (!token || token === 'dummy') {
@@ -133,6 +209,11 @@ export default function Schedule() {
     }
 
     setSyncing(true);
+
+    // Phase 1: Pull any date changes from Google Calendar → Firestore
+    const pulledCount = await fetchUpdatesFromGoogleCalendar();
+
+    // Phase 2: Push Firestore events → Google Calendar
     let createdCount = 0;
     let updatedCount = 0;
     let failCount = 0;
@@ -234,11 +315,12 @@ export default function Schedule() {
     setSyncing(false);
 
     const parts: string[] = [];
-    if (createdCount > 0) parts.push(`Created ${createdCount} new event(s)`);
-    if (updatedCount > 0) parts.push(`Updated ${updatedCount} existing event(s)`);
+    if (pulledCount > 0) parts.push(`Pulled ${pulledCount} date change(s) from Google Calendar`);
+    if (createdCount > 0) parts.push(`Created ${createdCount} new event(s) in Google Calendar`);
+    if (updatedCount > 0) parts.push(`Updated ${updatedCount} existing event(s) in Google Calendar`);
     if (failCount > 0) parts.push(`${failCount} failed — check the console`);
 
-    Swal.fire({ text: parts.length > 0 ? parts.join('. ') + '.' : 'Nothing to sync.', icon: 'info' });
+    Swal.fire({ text: parts.length > 0 ? parts.join('. ') + '.' : 'Everything is already in sync.', icon: 'info' });
   };
 
   const eventStyleGetter = (event: InspectionEvent) => {
@@ -289,7 +371,7 @@ export default function Schedule() {
           className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
         >
           {syncing ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          {syncing ? 'Syncing…' : 'Sync to Google Calendar'}
+          {syncing ? 'Syncing…' : 'Sync with Google Calendar'}
         </button>
       </div>
 
