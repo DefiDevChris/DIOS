@@ -39,16 +39,25 @@ Independent inspectors who contract with multiple **certifying agencies** to ins
 
 ### Inspection Management
 - **Operators** — Manage farms, handlers, and businesses you inspect. Track contacts, addresses, status, and link to certifying agencies. CSV import supported.
-- **Inspections** — Schedule, bundle, and track field inspections. Log hours, mileage, and per diem. Bundle multi-stop trips to share drive time across invoices.
+- **6-Step Inspection Workflow** — Scheduled → Prep → Inspected → Report → Invoiced → Paid. Each step has a modal collecting hours and checklist data. Visual progress bar on each operator page.
+- **Per-Agency Checklists** — Configurable prep and report checklists per agency. Enable/disable per agency, edit items in Settings.
+- **Distance & Nearby** — Each operator shows exact round-trip mileage and drive time from homebase (Google Directions API). "Nearby" modal shows operators sorted by distance for trip planning.
 - **Scheduling** — Calendar view with trip bundling. Sync to Google Calendar.
 - **Routing** — Google Maps-powered multi-stop route optimization with mileage calculation. Manual drag-and-drop reordering when offline.
 
 ### Billing & Finance
-- **Invoicing** — PDF invoices with per-agency billing rates: flat rate base, additional hourly, mileage, travel time, per diem, and custom line items.
+- **Invoice Editor** — Full editable invoice after Report step. Pre-populated with calculated hours, drive time, mileage, per diem, expenses, and agency default line items. Add/remove/edit line items inline.
+- **Invoice Emailing** — Per-agency email templates with `{variable}` substitution. Gmail compose pre-filled with template, PDF attached. Status → "Sent" on send.
+- **Invoice Statuses** — Not Complete (inspection in progress) / Sent / Paid. Cash-basis revenue tracking (counted in year payment received).
+- **Per-Agency Billing** — Flat rate toggle, hourly rates, per-type rate overrides, drive time hourly rate, mileage reimbursement toggle, per diem, default line items.
 - **Expenses** — Receipt scanning via OCR (Tesseract.js) with automatic vendor/amount extraction. Manual entry fallback.
-- **Billing Reports** — Custom date-range reports by agency with PDF export.
-- **Tax Reporting** — Income vs. expense summaries with PDF export for tax preparation.
+- **Tax Reporting** — Mileage deduction (IRS rate × total miles), cash-basis income, expense categories. Schedule C PDF export. Year selector shows 2026+.
 - **Analytics** — KPI dashboards with income/expense breakdowns.
+
+### Business Profile & Settings
+- **Onboarding Wizard** — First-run setup: business name, address (geocoded for homebase), email signature, first agency.
+- **Tabbed Settings** — My Business tab, one tab per agency, Add Agency, Data & Integrations.
+- **Rich Email Signature** — HTML editor with live preview. Auto-generated from business profile.
 
 ### Documents & Communication
 - **Google Drive** — File browser with organized folder hierarchy per operator and year.
@@ -71,58 +80,45 @@ Independent inspectors who contract with multiple **certifying agencies** to ins
 
 ```
 apps/
-├── desktop/                   # Electron wrapper
-│   ├── main/                  # Electron main process (IPC, SQLite, sync engine)
-│   └── renderer/              # React app (Vite)
-├── mobile/                    # Mobile companion SPA (Vite, Firebase Hosting)
+├── desktop/                       # Electron desktop app
+│   ├── main/                      # Electron main process
+│   │   ├── database.ts            # SQLite connection + init
+│   │   ├── schema.ts              # Table definitions + migrations
+│   │   ├── syncEngine.ts          # Background Firestore sync
+│   │   └── ipcHandlers.ts         # IPC bridge for renderer
+│   └── renderer/                  # React frontend (Vite)
+│       └── src/
+│           ├── App.tsx            # Router, auth guard, onboarding check
+│           ├── contexts/          # AuthContext, BackgroundSyncContext
+│           ├── hooks/             # useDatabase, useFileStorage, useOnlineStatus
+│           ├── lib/               # pdfGenerator, driveSync, localFsSync, syncQueue
+│           ├── utils/             # invoiceCalculator, distanceUtils, templateRenderer, geocoding
+│           ├── components/        # Reusable UI (see below)
+│           └── pages/             # Route-level pages (17 pages)
+├── mobile/                        # Mobile companion SPA (Vite, Firebase Hosting)
 
 packages/
-└── shared/                    # Shared types, Firebase config, auth logic
-
-src/                           # Current source (migrating into apps/desktop/renderer)
-├── main.tsx                   # App entry point
-├── App.tsx                    # Router, auth guard
-├── firebase.ts                # Firebase initialization
-├── contexts/
-│   ├── AuthContext.tsx         # Google OAuth + token management
-│   └── BackgroundSyncContext.tsx
-├── lib/
-│   ├── configStore.ts         # Config persistence
-│   ├── syncQueue.ts           # Upload queue (being replaced by Electron sync)
-│   ├── driveSync.ts           # Google Drive folder hierarchy
-│   ├── localFsSync.ts         # Local file system wrapper
-│   └── pdfGenerator.ts        # Invoice & tax report PDF generation
-├── utils/
-│   ├── googleApiClient.ts     # Google API fetch wrapper with 401 retry
-│   ├── geocodingUtils.ts      # Address → lat/lng
-│   └── firestoreErrorHandler.ts
-├── components/
-│   ├── Layout.tsx             # Sidebar + command palette
-│   ├── SetupWizard.tsx        # Firebase & API key configuration
-│   ├── ReceiptScanner.tsx     # Camera + OCR + manual entry
-│   ├── ProcessUploadModal.tsx # File processor
-│   ├── TasksWidget.tsx        # Task list with entity tagging
-│   └── LeafLogo.tsx
-├── pages/
-│   ├── Dashboard.tsx          # Upcoming inspections, tasks, uploads
-│   ├── Operations.tsx         # Operator directory
-│   ├── OperationProfile.tsx   # Operator detail: docs, activities, email
-│   ├── Inspections.tsx        # Inspection list
-│   ├── InspectionProfile.tsx  # Inspection detail: billing, expenses
-│   ├── Invoices.tsx           # Invoice list + PDF download
-│   ├── Expenses.tsx           # Expense tracking
-│   ├── Schedule.tsx           # Calendar + trip bundling
-│   ├── NotesTasks.tsx         # Tasks & notes
-│   ├── Routing.tsx            # Map-based routing
-│   ├── Email.tsx              # Gmail integration
-│   ├── Reports.tsx            # Billing reports
-│   ├── Insights.tsx           # Analytics dashboards
-│   ├── Drive.tsx              # Google Drive browser
-│   ├── Sheets.tsx             # Google Sheets
-│   ├── MobileHub.tsx          # Mobile capture
-│   └── Settings.tsx           # Agencies, integrations, backup
-└── types/
+└── shared/                        # Shared types, Firebase config, auth logic
+    └── src/types.ts               # Agency, Operation, Inspection, Invoice, etc.
 ```
+
+### Key Components (apps/desktop/renderer/src/components/)
+
+| Component | Purpose |
+|-----------|---------|
+| InspectionProgressBar | 6-step workflow: Scheduled → Prep → Inspected → Report → Invoiced → Paid |
+| StepModal | Checklist + hours modal for Prep/Inspected/Report steps |
+| InvoiceEditor | Full editable invoice with pre-calculated line items |
+| InvoiceEmailModal | Gmail compose with agency template and PDF attachment |
+| BusinessProfileTab | My Business settings (Firestore-backed) |
+| AgencySettingsTab | Per-agency rates, checklists, email templates |
+| RateConfigSection | Flat/hourly rate toggle with conditional fields |
+| ChecklistEditor | Configurable prep/report checklist items |
+| SignatureEditor | Rich HTML email signature with live preview |
+| StickyNote | Quick note/task creation widget |
+| UnifiedActivityFeed | Combined notes/tasks/activity feed |
+| NearbyOperatorsModal | Distance-sorted nearby operators (Haversine) |
+| OnboardingWizard | First-run setup: business profile, address, signature, first agency |
 
 ## Data Model
 
@@ -130,15 +126,15 @@ All user data lives under `/users/{userId}/` in Firestore (and mirrored in local
 
 | Collection | Purpose | Key Fields |
 |-----------|---------|------------|
-| `agencies` | Certifying agencies that hire you | name, billing address, rates (flat, hourly, mileage, travel time, per diem) |
-| `operations` | Operators you inspect | name, agency, address, contact, status, inspection status |
-| `operations/{id}/documents` | Files attached to an operator | name, url, size, type |
-| `operations/{id}/activities` | Activity log per operator | type, description, timestamp |
-| `inspections` | Scheduled/completed inspections | operator, date, hours, miles, bundle info, billing details |
-| `invoices` | Generated invoices | inspection, agency, amount, PDF Drive ID, paid/unpaid |
-| `tasks` | Notes & follow-ups | title, status, due date, linked operator/inspection |
-| `expenses` | Business expenses | date, vendor, amount, receipt image |
-| `system_settings/config` | Drive folder IDs, defaults | root, uploads, receipts, reports folders |
+| `agencies` | Certifying agencies | name, billingAddress, isFlatRate, flatRateAmount, hourlyRate, driveTimeHourlyRate, mileageReimbursed, mileageRate, perDiemRate, perTypeRatesEnabled, ratesByType, billingEmail, emailTemplate*, prepChecklist*, reportChecklist*, defaultLineItems |
+| `operations` | Operators you inspect | name, agencyId, address, contact, operationType, clientId, lat/lng, cachedDistanceMiles, cachedDriveTimeMinutes |
+| `operation_activities` | Activity log per operator | operationId, type, description, timestamp |
+| `inspections` | Inspection workflow records | operationId, date, status (Scheduled/Prep/Inspected/Report/Invoiced/Paid), prepHours, onsiteHours, reportHours, calculatedMileage, calculatedDriveTime, prepChecklistData, reportChecklistData |
+| `invoices` | Generated invoices | inspectionId, agencyId, operationId, totalAmount, lineItems (JSON), status (Not Complete/Sent/Paid), sentDate, paidDate |
+| `tasks` | Notes & follow-ups | title, status, dueDate, operationId, inspectionId |
+| `notes` | Quick notes | content, operationId |
+| `expenses` | Business expenses | date, vendor, amount, receipt image, category |
+| `system_settings/config` | Business profile & settings | businessName, ownerName, address, irsMileageRate, emailSignatureHtml, homebaseLat/Lng, onboardingCompleted |
 
 ## Getting Started
 
@@ -165,10 +161,15 @@ Enter `dummy` as the API key in the Setup Wizard to bypass auth and run with a l
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start dev server on port 3000 |
-| `npm run build` | Production build |
+| `npm run dev` | Start desktop dev server (port 3000) |
+| `npm run dev:mobile` | Start mobile dev server (port 3001) |
+| `npm run build` | Build shared + desktop (Vite) |
+| `npm run build:electron` | Build desktop + package Electron binary |
 | `npm run preview` | Preview production build |
-| `npm run lint` | TypeScript type checking |
+| `npm run lint` | TypeScript type checking (tsc --noEmit) |
+| `npm run test` | Run Vitest test suite |
+| `npm run test:coverage` | Run tests with coverage report |
+| `npm run clean` | Remove dist, dist-electron, out |
 
 ## License
 
