@@ -8,6 +8,10 @@ export interface AppConfig {
     appId: string;
   };
   googleMapsApiKey: string;
+  /** Google OAuth 2.0 Web Client ID (from Google Cloud Console / Firebase Auth settings).
+   *  Required for the GIS silent token refresh mechanism.
+   *  Format: NUMBERS-HASH.apps.googleusercontent.com */
+  googleOAuthClientId?: string;
 }
 
 const CONFIG_KEY = 'dois_studio_config';
