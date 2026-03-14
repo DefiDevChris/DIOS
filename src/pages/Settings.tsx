@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
-import { Plus, Edit2, Trash2, Building2, DollarSign, Clock, MapPin, X, Car, Shield, FolderSync } from 'lucide-react';
+import { Plus, Edit2, Trash2, Building2, DollarSign, Clock, MapPin, X, Car, Shield, FolderSync, Download, FolderOpen } from 'lucide-react';
 import { configStore } from '../lib/configStore';
 import { requestLocalFolder, getStoredLocalFolder } from '../lib/localFsSync';
 
@@ -15,6 +15,7 @@ interface Agency {
   flatRateIncludedHours: number;
   additionalHourlyRate: number;
   mileageRate: number;
+  driveFolderId: string;
   travelTimeHourlyRate?: number;
   perDiemRate?: number;
 }
@@ -35,6 +36,7 @@ export default function Settings() {
     flatRateIncludedHours: 0,
     additionalHourlyRate: 0,
     mileageRate: 0,
+    driveFolderId: '',
     travelTimeHourlyRate: 0,
     perDiemRate: 0,
   });
@@ -81,6 +83,7 @@ export default function Settings() {
         flatRateIncludedHours: agency.flatRateIncludedHours,
         additionalHourlyRate: agency.additionalHourlyRate,
         mileageRate: agency.mileageRate,
+        driveFolderId: agency.driveFolderId || '',
         travelTimeHourlyRate: agency.travelTimeHourlyRate || 0,
         perDiemRate: agency.perDiemRate || 0,
       });
@@ -93,6 +96,7 @@ export default function Settings() {
         flatRateIncludedHours: 0,
         additionalHourlyRate: 0,
         mileageRate: 0,
+        driveFolderId: '',
         travelTimeHourlyRate: 0,
         perDiemRate: 0,
       });
@@ -183,6 +187,9 @@ export default function Settings() {
       alert('Failed to generate backup. Check console for details.');
     } finally {
       setIsBackingUp(false);
+    }
+  };
+
   const handleLinkLocalFolder = async () => {
     const handle = await requestLocalFolder();
     if (handle) {
@@ -260,6 +267,13 @@ export default function Settings() {
                   </div>
                 </div>
                 
+                {agency.driveFolderId && (
+                  <div className="flex items-center gap-1.5 mt-1 text-stone-400 text-xs">
+                    <FolderOpen size={14} className="shrink-0" />
+                    <span className="font-mono truncate max-w-[200px]">{agency.driveFolderId}</span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 mt-6">
                   <div className="bg-stone-50 rounded-xl p-3 border border-stone-100">
                     <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -443,6 +457,18 @@ export default function Settings() {
                       rows={3}
                       className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all resize-none"
                       placeholder="123 Main St&#10;City, State 12345"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Google Drive Folder ID</label>
+                    <input
+                      type="text"
+                      name="driveFolderId"
+                      value={formData.driveFolderId}
+                      onChange={handleChange}
+                      className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all font-mono"
+                      placeholder="e.g., 1A2B3C4D5E6F..."
                     />
                   </div>
                 </div>
