@@ -6,6 +6,7 @@ import { configStore } from '@dios/shared'
 import { useState, useEffect, Suspense, lazy } from 'react'
 import SetupWizard from './components/SetupWizard'
 import ErrorBoundary from './components/ErrorBoundary'
+import OnboardingWizard from './components/OnboardingWizard'
 
 // Route-level code splitting
 const Login = lazy(() => import('./pages/Login'))
@@ -28,8 +29,27 @@ const Sheets = lazy(() => import('./pages/Sheets'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [onboardingChecked, setOnboardingChecked] = useState(false)
 
-  if (loading) {
+  useEffect(() => {
+    if (!user) return
+    import('firebase/firestore').then(({ doc, getDoc }) => {
+      import('@dios/shared/firebase').then(({ db }) => {
+        getDoc(doc(db, `users/${user.uid}/system_settings/config`)).then((snap) => {
+          if (!snap.exists() || snap.data().onboardingCompleted !== true) {
+            setShowOnboarding(true)
+          }
+          setOnboardingChecked(true)
+        }).catch(() => {
+          setShowOnboarding(true)
+          setOnboardingChecked(true)
+        })
+      })
+    })
+  }, [user])
+
+  if (loading || !onboardingChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F9F8F6]">
         Loading...
@@ -41,7 +61,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
 
-  return <>{children}</>
+  return (
+    <>
+      {showOnboarding && (
+        <OnboardingWizard isOpen={showOnboarding} onComplete={() => setShowOnboarding(false)} />
+      )}
+      {children}
+    </>
+  )
 }
 
 function PageLoader() {
