@@ -30,7 +30,7 @@ interface ImgLayout {
 
 type ActiveField = 'date' | 'vendor' | 'amount' | null;
 
-function parseOcrText(text: string): { date?: string; amount?: string; vendor?: string } {
+export function parseOcrText(text: string): { date?: string; amount?: string; vendor?: string } {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
   const vendor = lines.find(l => l.length > 2 && !/^\d/.test(l)) ?? lines[0] ?? '';

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowRight, Calendar, CloudUpload, Edit3, Check, Loader2, X, FileText, Image, File, ChevronDown } from 'lucide-react';
+import { ArrowRight, Calendar, CloudUpload, Edit3, Check, Loader2, X, FileText, Image, File } from 'lucide-react';
 import { format } from 'date-fns';
 import TasksWidget from '../components/TasksWidget';
+import ProcessUploadModal, { UnassignedUpload } from '../components/ProcessUploadModal';
 import { useAuth } from '../contexts/AuthContext';
 import { db, storage } from '../firebase';
 import { collection, query, where, orderBy, limit, getDocs, addDoc, onSnapshot } from 'firebase/firestore';
@@ -14,17 +15,6 @@ interface UpcomingInspection {
   status: string;
   operationId: string;
   operationName: string;
-}
-
-interface UploadedFile {
-  id: string;
-  fileName: string;
-  fileType: string;
-  downloadURL: string;
-  operationId: string;
-  operationName: string;
-  uploadedAt: string;
-  fileSize: number;
 }
 
 interface Operation {
@@ -58,14 +48,11 @@ export default function Dashboard() {
   const [noteSaved, setNoteSaved] = useState(false);
 
   // Uploads state
-  const [recentUploads, setRecentUploads] = useState<UploadedFile[]>([]);
+  const [unassignedUploads, setUnassignedUploads] = useState<UnassignedUpload[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [operations, setOperations] = useState<Operation[]>([]);
-  const [selectedOpId, setSelectedOpId] = useState('');
-  const [showOpPicker, setShowOpPicker] = useState(false);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const opPickerRef = useRef<HTMLDivElement>(null);
+  const [selectedUpload, setSelectedUpload] = useState<UnassignedUpload | null>(null);
 
   // Fetch upcoming inspections (future dates, ordered ascending)
   useEffect(() => {
@@ -79,7 +66,6 @@ export default function Dashboard() {
       try {
         const todayStr = today.toISOString().split('T')[0];
 
-        // Fetch inspections with date >= today
         const inspSnap = await getDocs(
           query(
             collection(db, `users/${user.uid}/inspections`),
@@ -100,7 +86,6 @@ export default function Dashboard() {
           return;
         }
 
-        // Fetch all operations once and build id→name map
         const opsSnap = await getDocs(collection(db, `users/${user.uid}/operations`));
         const opNames: Record<string, string> = {};
         opsSnap.forEach(d => {
@@ -123,7 +108,7 @@ export default function Dashboard() {
     fetchUpcoming();
   }, [user]);
 
-  // Fetch operations for upload association
+  // Fetch operations for the processing modal
   useEffect(() => {
     if (!user || !db) return;
     const unsub = onSnapshot(
@@ -135,32 +120,21 @@ export default function Dashboard() {
     return () => unsub();
   }, [user]);
 
-  // Fetch recent uploads (last 6)
+  // Fetch unassigned uploads (last 6, most recent first)
   useEffect(() => {
     if (!user || !db) return;
     const unsub = onSnapshot(
       query(
-        collection(db, `users/${user.uid}/documents`),
+        collection(db, `users/${user.uid}/unassigned_uploads`),
         orderBy('uploadedAt', 'desc'),
         limit(6)
       ),
       (snap) => {
-        setRecentUploads(snap.docs.map(d => ({ id: d.id, ...d.data() } as UploadedFile)));
+        setUnassignedUploads(snap.docs.map(d => ({ id: d.id, ...d.data() } as UnassignedUpload)));
       }
     );
     return () => unsub();
   }, [user]);
-
-  // Close operation picker on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (opPickerRef.current && !opPickerRef.current.contains(e.target as Node)) {
-        setShowOpPicker(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
 
   const handleSaveNote = async () => {
     if (!user || !db || !noteText.trim()) return;
@@ -180,59 +154,52 @@ export default function Dashboard() {
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    setPendingFile(file);
-    setShowOpPicker(true);
-    // Reset the input so the same file can be re-selected
+    if (!file || !user || !storage || !db) return;
     e.target.value = '';
-  };
 
-  const startUpload = async (file: File, operationId: string) => {
-    if (!user || !storage || !db) return;
     setUploading(true);
     setUploadProgress(0);
-    setShowOpPicker(false);
 
-    const opName = operations.find(o => o.id === operationId)?.name ?? '';
-    const filePath = `users/${user.uid}/uploads/${Date.now()}_${file.name}`;
-    const storageRef = ref(storage, filePath);
-    const uploadTask = uploadBytesResumable(storageRef, file);
+    try {
+      const fileName = `${Date.now()}_${file.name}`;
+      const storagePath = `users/${user.uid}/unassigned_uploads/${fileName}`;
+      const storageRef = ref(storage, storagePath);
+      const uploadTask = uploadBytesResumable(storageRef, file);
 
-    uploadTask.on(
-      'state_changed',
-      (snapshot) => {
-        const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-        setUploadProgress(pct);
-      },
-      (error) => {
-        console.error('Upload error:', error);
-        setUploading(false);
-      },
-      async () => {
-        try {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          await addDoc(collection(db, `users/${user.uid}/documents`), {
-            fileName: file.name,
-            fileType: file.type,
-            fileSize: file.size,
-            downloadURL,
-            storagePath: filePath,
-            operationId,
-            operationName: opName,
-            uploadedAt: new Date().toISOString(),
-          });
-        } catch (err) {
-          console.error('Error saving upload metadata:', err);
-        } finally {
-          setUploading(false);
-          setUploadProgress(0);
-          setPendingFile(null);
-          setSelectedOpId('');
-        }
-      }
-    );
+      await new Promise<void>((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+            setUploadProgress(pct);
+          },
+          reject,
+          async () => {
+            try {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              await addDoc(collection(db, `users/${user.uid}/unassigned_uploads`), {
+                fileName: file.name,
+                storagePath,
+                downloadURL,
+                fileType: file.type,
+                fileSize: file.size,
+                uploadedAt: new Date().toISOString(),
+              });
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          }
+        );
+      });
+    } catch (error) {
+      console.error('Upload error:', error);
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
   };
 
   const formatInspectionDate = (dateStr: string) => {
@@ -350,6 +317,11 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <CloudUpload size={18} className="text-[#D49A6A]" />
               <h2 className="text-base font-bold text-stone-900">Uploads</h2>
+              {unassignedUploads.length > 0 && (
+                <span className="bg-[#D49A6A] text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
+                  {unassignedUploads.length}
+                </span>
+              )}
             </div>
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -370,43 +342,6 @@ export default function Dashboard() {
             onChange={handleFileSelect}
           />
 
-          {/* Operation picker overlay */}
-          {showOpPicker && pendingFile && (
-            <div ref={opPickerRef} className="mb-4 p-4 bg-stone-50 border border-stone-200 rounded-2xl">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-bold text-stone-700 uppercase tracking-wider">
-                  Assign to Operation
-                </p>
-                <button
-                  onClick={() => { setShowOpPicker(false); setPendingFile(null); }}
-                  className="text-stone-400 hover:text-stone-600"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <p className="text-xs text-stone-500 mb-3 truncate">File: <span className="font-medium text-stone-700">{pendingFile.name}</span></p>
-              <div className="relative mb-3">
-                <select
-                  value={selectedOpId}
-                  onChange={(e) => setSelectedOpId(e.target.value)}
-                  className="w-full appearance-none bg-white border border-stone-200 rounded-xl px-3 py-2 text-sm pr-8 focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]"
-                >
-                  <option value="">No operation (unassigned)</option>
-                  {operations.map(op => (
-                    <option key={op.id} value={op.id}>{op.name}</option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-              </div>
-              <button
-                onClick={() => startUpload(pendingFile, selectedOpId)}
-                className="w-full py-2 bg-[#D49A6A] hover:bg-[#c28a5c] text-white text-sm font-semibold rounded-xl transition-colors"
-              >
-                Upload File
-              </button>
-            </div>
-          )}
-
           {/* Upload progress bar */}
           {uploading && (
             <div className="mb-4">
@@ -423,26 +358,31 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* Hint text */}
+          {unassignedUploads.length > 0 && !uploading && (
+            <p className="text-[10px] text-stone-400 mb-3">
+              Click an item to assign it to an operation or process as a receipt.
+            </p>
+          )}
+
           {/* File list or empty state */}
-          {!uploading && !showOpPicker && recentUploads.length === 0 ? (
+          {!uploading && unassignedUploads.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-stone-400">
               <div className="mb-3">
                 <CloudUpload size={36} className="text-stone-300" strokeWidth={1.5} />
               </div>
               <p className="text-sm font-medium text-stone-500">No unassigned uploads</p>
-              <p className="text-xs mt-1">Use Upload to add photos or documents</p>
+              <p className="text-xs mt-1">Captures from Mobile Hub appear here</p>
             </div>
-          ) : recentUploads.length > 0 ? (
+          ) : unassignedUploads.length > 0 ? (
             <div className="flex-1 flex flex-col gap-2 overflow-y-auto">
-              {recentUploads.map(file => {
+              {unassignedUploads.map(file => {
                 const { Icon, color } = getFileIcon(file.fileType);
                 return (
-                  <a
+                  <button
                     key={file.id}
-                    href={file.downloadURL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 p-2.5 rounded-xl bg-stone-50 border border-stone-100 hover:bg-stone-100 transition-colors group"
+                    onClick={() => setSelectedUpload(file)}
+                    className="flex items-center gap-3 p-2.5 rounded-xl bg-stone-50 border border-stone-100 hover:bg-amber-50 hover:border-[#D49A6A]/30 transition-colors group text-left w-full"
                   >
                     <div className="w-8 h-8 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
                       <Icon size={16} className={color} />
@@ -450,11 +390,16 @@ export default function Dashboard() {
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-semibold text-stone-800 truncate">{file.fileName}</div>
                       <div className="text-[10px] text-stone-400 mt-0.5">
-                        {file.operationName || 'Unassigned'} · {formatFileSize(file.fileSize)}
+                        Unassigned · {formatFileSize(file.fileSize)}
                       </div>
                     </div>
-                    <ArrowRight size={12} className="text-stone-300 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </a>
+                    <div className="shrink-0 flex items-center gap-1">
+                      <span className="text-[10px] font-semibold text-[#D49A6A] opacity-0 group-hover:opacity-100 transition-opacity">
+                        Process
+                      </span>
+                      <ArrowRight size={12} className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </button>
                 );
               })}
             </div>
@@ -462,6 +407,16 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* Process Upload Modal */}
+      {selectedUpload && (
+        <ProcessUploadModal
+          upload={selectedUpload}
+          operations={operations}
+          onClose={() => setSelectedUpload(null)}
+          onProcessed={() => setSelectedUpload(null)}
+        />
+      )}
     </div>
   );
 }
