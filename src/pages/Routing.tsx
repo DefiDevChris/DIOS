@@ -8,6 +8,7 @@ import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer } from '@react-go
 import { Map, MapPin, Truck, Save, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { geocodeMissingOperations } from '../utils/geocodingUtils';
+import Swal from 'sweetalert2';
 
 const containerStyle = {
   width: '100%',
@@ -179,11 +180,11 @@ export default function Routing() {
         });
       }
 
-      alert("Bundle saved successfully! Linked inspections created.");
+      Swal.fire({ text: "Bundle saved successfully! Linked inspections created.", icon: 'success' });
       navigate('/schedule');
     } catch (error) {
       console.error("Error saving bundle", error);
-      alert("Failed to save bundle.");
+      Swal.fire({ text: "Failed to save bundle.", icon: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -191,11 +192,11 @@ export default function Routing() {
 
   const calculateRoute = async () => {
     if (!originAddress) {
-      alert("Please enter a starting address.");
+      Swal.fire({ text: "Please enter a starting address.", icon: 'info' });
       return;
     }
     if (selectedOpIds.size === 0) {
-      alert("Please select at least one operation to visit.");
+      Swal.fire({ text: "Please select at least one operation to visit.", icon: 'info' });
       return;
     }
 
@@ -222,7 +223,7 @@ export default function Routing() {
       setDirectionsResult(response);
     } catch (error) {
       console.error("Directions request failed", error);
-      alert("Failed to calculate route. Please ensure all addresses are valid.");
+      Swal.fire({ text: "Failed to calculate route. Please ensure all addresses are valid.", icon: 'error' });
     } finally {
       setIsCalculating(false);
     }

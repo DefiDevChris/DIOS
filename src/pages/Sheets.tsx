@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { configStore } from '../lib/configStore';
 import { Table2, Download, ExternalLink, FileSpreadsheet, Loader, Maximize2, X, FolderOpen } from 'lucide-react';
+import Swal from 'sweetalert2';
 
 interface SelectedSheet {
   id: string;
@@ -43,7 +44,7 @@ export default function Sheets() {
 
   const openPicker = useCallback(async () => {
     if (!token || token === 'dummy') {
-      alert('Please sign in with Google to use the Sheets picker.');
+      Swal.fire({ text: 'Please sign in with Google to use the Sheets picker.', icon: 'info' });
       return;
     }
     setPickerLoading(true);
@@ -72,7 +73,7 @@ export default function Sheets() {
       picker.setVisible(true);
     } catch (err) {
       console.error('Picker failed to open:', err);
-      alert('Failed to open the Google Picker. Please try again.');
+      Swal.fire({ text: 'Failed to open the Google Picker. Please try again.', icon: 'error' });
     } finally {
       setPickerLoading(false);
     }
@@ -80,7 +81,7 @@ export default function Sheets() {
 
   const createGoogleSheet = async (title: string, rows: string[][]) => {
     if (!token || token === 'dummy') {
-      alert('Please sign in with Google to create Sheets.');
+      Swal.fire({ text: 'Please sign in with Google to create Sheets.', icon: 'info' });
       return;
     }
     const body = {
@@ -127,7 +128,7 @@ export default function Sheets() {
       if (url) window.open(url, '_blank');
     } catch (err: unknown) {
       console.error('Export failed:', err);
-      alert(`Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      Swal.fire({ text: `Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`, icon: 'error' });
     } finally {
       setExporting(null);
     }
@@ -155,7 +156,7 @@ export default function Sheets() {
       if (url) window.open(url, '_blank');
     } catch (err: unknown) {
       console.error('Export failed:', err);
-      alert(`Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      Swal.fire({ text: `Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`, icon: 'error' });
     } finally {
       setExporting(null);
     }
@@ -183,7 +184,7 @@ export default function Sheets() {
       if (url) window.open(url, '_blank');
     } catch (err: unknown) {
       console.error('Export failed:', err);
-      alert(`Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      Swal.fire({ text: `Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`, icon: 'error' });
     } finally {
       setExporting(null);
     }

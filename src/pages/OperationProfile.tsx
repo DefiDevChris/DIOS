@@ -56,6 +56,7 @@ interface Activity {
 }
 
 import TasksWidget from '../components/TasksWidget';
+import Swal from 'sweetalert2';
 
 export default function OperationProfile() {
   const { id } = useParams<{ id: string }>();
@@ -220,11 +221,11 @@ export default function OperationProfile() {
   const loadGmailThreads = async () => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
     if (!token || token === 'dummy') {
-      alert('Please sign in with Google to view Gmail threads.');
+      Swal.fire({ text: 'Please sign in with Google to view Gmail threads.', icon: 'info' });
       return;
     }
     if (!operation?.email) {
-      alert('No contact email set for this operation.');
+      Swal.fire({ text: 'No contact email set for this operation.', icon: 'info' });
       return;
     }
     setLoadingThreads(true);
@@ -239,7 +240,7 @@ export default function OperationProfile() {
       setGmailThreads(data.threads || []);
     } catch (error: any) {
       console.error('Failed to fetch Gmail threads:', error);
-      alert(`Failed to fetch email threads: ${error.message}`);
+      Swal.fire({ text: `Failed to fetch email threads: ${error.message}`, icon: 'error' });
     } finally {
       setLoadingThreads(false);
     }
@@ -248,11 +249,11 @@ export default function OperationProfile() {
   const sendTemplatedEmail = async () => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
     if (!token || token === 'dummy') {
-      alert('Please sign in with Google to send emails.');
+      Swal.fire({ text: 'Please sign in with Google to send emails.', icon: 'info' });
       return;
     }
     if (!operation?.email) {
-      alert('No contact email set for this operation.');
+      Swal.fire({ text: 'No contact email set for this operation.', icon: 'info' });
       return;
     }
     setSendingEmail(true);
@@ -290,10 +291,10 @@ export default function OperationProfile() {
       setComposeOpen(false);
       setEmailSubject('');
       setEmailBody('');
-      alert('Email sent successfully!');
+      Swal.fire({ text: 'Email sent successfully!', icon: 'success' });
     } catch (error: any) {
       console.error('Failed to send email:', error);
-      alert(`Failed to send email: ${error.message}`);
+      Swal.fire({ text: `Failed to send email: ${error.message}`, icon: 'error' });
     } finally {
       setSendingEmail(false);
     }
@@ -338,7 +339,7 @@ export default function OperationProfile() {
     if (!file || !user || !id || !operation) return;
 
     if (!googleAccessToken) {
-      alert("Please sign in with Google to upload files to Drive.");
+      Swal.fire({ text: "Please sign in with Google to upload files to Drive.", icon: 'info' });
       return;
     }
 

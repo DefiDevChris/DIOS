@@ -9,7 +9,7 @@ import {
 import { auth, isInitialized } from '../firebase';
 import { configStore } from '../lib/configStore';
 import { registerTokenRefresher } from '../utils/googleApiClient';
-import '../types/google-gis';
+/// <reference path="../types/google-gis.d.ts" />
 
 const TOKEN_STORAGE_KEY = 'googleAccessToken';
 const TOKEN_EXPIRY_KEY = 'googleAccessTokenExpiry';
@@ -32,6 +32,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * AuthProvider wraps the application and provides global state for the
+ * current Firebase user and Google OAuth access token. It also manages
+ * the lifecycle of the token (refreshing via GIS) and provides methods
+ * for signing in and out.
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(

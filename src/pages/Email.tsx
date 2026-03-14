@@ -5,6 +5,7 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { googleApiJson, googleApiFetch } from '../utils/googleApiClient';
 import { Mail, Search, MessageSquare, Plus, X, Loader2, Send, Paperclip, Download } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
+import Swal from 'sweetalert2';
 
 interface EmailThread {
   id: string;
@@ -229,7 +230,7 @@ export default function Email() {
       setComposeAttachments([]);
     } catch (error) {
       console.error('Error sending email:', error);
-      alert('Failed to send email. Check console for details.');
+      Swal.fire({ text: 'Failed to send email. Check console for details.', icon: 'error' });
     } finally {
       setSending(false);
     }
@@ -295,7 +296,7 @@ export default function Email() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Failed to download attachment:', err);
-      alert('Could not download attachment. Check console for details.');
+      Swal.fire({ text: 'Could not download attachment. Check console for details.', icon: 'error' });
     }
   };
 

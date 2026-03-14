@@ -6,6 +6,7 @@ import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHand
 import { Plus, Edit2, Trash2, Building2, DollarSign, Clock, MapPin, X, Car, Shield, FolderSync, Download, FolderOpen } from 'lucide-react';
 import { configStore } from '../lib/configStore';
 import { requestLocalFolder, getStoredLocalFolder } from '../lib/localFsSync';
+import Swal from 'sweetalert2';
 
 interface Agency {
   id: string;
@@ -184,7 +185,7 @@ export default function Settings() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Failed to download backup:', error);
-      alert('Failed to generate backup. Check console for details.');
+      Swal.fire({ text: 'Failed to generate backup. Check console for details.', icon: 'error' });
     } finally {
       setIsBackingUp(false);
     }

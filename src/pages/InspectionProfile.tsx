@@ -68,6 +68,7 @@ interface Agency {
 }
 
 import TasksWidget from '../components/TasksWidget';
+import Swal from 'sweetalert2';
 
 export default function InspectionProfile() {
   const { id } = useParams<{ id: string }>();
@@ -392,10 +393,10 @@ export default function InspectionProfile() {
         createdAt: serverTimestamp(),
       });
 
-      alert('Invoice generated successfully!');
+      Swal.fire({ text: 'Invoice generated successfully!', icon: 'success' });
     } catch (error) {
       console.error('Error generating invoice:', error);
-      alert('Failed to generate invoice.');
+      Swal.fire({ text: 'Failed to generate invoice.', icon: 'error' });
     } finally {
       setSaving(false);
     }

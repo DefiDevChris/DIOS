@@ -7,6 +7,7 @@ import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHand
 import { geocodeAndSaveOperation } from '../utils/geocodingUtils';
 import { Plus, Edit2, Trash2, Building2, MapPin, Phone, Mail, Search, X, Briefcase, ChevronRight, Upload } from 'lucide-react';
 import Papa from 'papaparse';
+import Swal from 'sweetalert2';
 
 interface Agency {
   id: string;
@@ -284,7 +285,7 @@ export default function Operations() {
       },
       error: (error) => {
         console.error('Error parsing CSV:', error);
-        alert('Failed to parse CSV file.');
+        Swal.fire({ text: 'Failed to parse CSV file.', icon: 'error' });
       }
     });
 
