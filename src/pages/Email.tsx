@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { googleApiJson, googleApiFetch } from '../utils/googleApiClient';
 import { Mail, Search, MessageSquare, Plus, X, Loader2, Send, Paperclip, Download } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
@@ -56,19 +56,30 @@ export default function Email() {
     const fetchEmails = async () => {
       try {
         setLoading(true);
-        // 1. Fetch active operations to get their emails
-        const opsRef = collection(db, `users/${user.uid}/operations`);
-        const q = query(opsRef, where("status", "==", "active"));
-        const querySnapshot = await getDocs(q);
 
-        const emails: string[] = [];
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          if (data.email) {
-            emails.push(data.email.trim());
-          }
+        // 1. Fetch ALL operations emails (no status filter)
+        const opsSnapshot = await getDocs(collection(db, `users/${user.uid}/operations`));
+        const emailSet = new Set<string>();
+        opsSnapshot.forEach((d) => {
+          const data = d.data();
+          if (data.email) emailSet.add(data.email.trim().toLowerCase());
         });
 
+        // 2. Fetch all agency emails (if present)
+        const agenciesSnapshot = await getDocs(collection(db, `users/${user.uid}/agencies`));
+        agenciesSnapshot.forEach((d) => {
+          const data = d.data();
+          if (data.email) emailSet.add(data.email.trim().toLowerCase());
+        });
+
+        // 3. Fetch custom whitelisted emails from user document
+        const userDocSnap = await getDoc(doc(db, `users/${user.uid}`));
+        if (userDocSnap.exists()) {
+          const whitelisted: string[] = userDocSnap.data().whitelistedEmails || [];
+          whitelisted.forEach(e => emailSet.add(e.trim().toLowerCase()));
+        }
+
+        const emails = Array.from(emailSet);
         setOperationsEmails(emails);
 
         if (emails.length === 0) {
@@ -76,8 +87,8 @@ export default function Email() {
           return;
         }
 
-        // 2. Build Gmail query string (max 10 emails to keep query reasonable)
-        const topEmails = emails.slice(0, 10);
+        // 4. Build Gmail query string (cap at 15 addresses to stay within URL limits)
+        const topEmails = emails.slice(0, 15);
         const searchQuery = topEmails.map(email => `from:${email} OR to:${email}`).join(' OR ');
 
         // 3. Fetch threads from Gmail API (401 auto-refresh handled by googleApiJson)
@@ -365,7 +376,7 @@ export default function Email() {
       <div className="flex justify-between items-end mb-6 shrink-0">
         <div>
           <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">Client Communications</h1>
-          <p className="mt-2 text-stone-500 text-sm">Recent emails with your active operations.</p>
+          <p className="mt-2 text-stone-500 text-sm">Recent emails with your operations, agencies, and whitelisted contacts.</p>
         </div>
         <button
           onClick={() => setIsComposerOpen(true)}
@@ -402,7 +413,7 @@ export default function Email() {
             ) : threads.length === 0 ? (
               <div className="p-8 text-center text-stone-500 text-sm">
                 <MessageSquare size={32} className="mx-auto text-stone-300 mb-3" />
-                No recent emails found for active operations.
+                No recent emails found. Add operations, agencies, or whitelisted emails in Settings.
               </div>
             ) : (
               <div className="divide-y divide-stone-100">
