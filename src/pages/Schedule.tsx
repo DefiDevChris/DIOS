@@ -4,9 +4,9 @@ import { db } from '../firebase';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, Views } from 'react-big-calendar';
-import { format, parse, startOfWeek, getDay } from 'date-fns';
+import { format, parse, startOfWeek, getDay, addDays } from 'date-fns';
 import { enUS } from 'date-fns/locale/en-US';
-import { Calendar as CalendarIcon, RefreshCw } from 'lucide-react';
+import { Calendar as CalendarIcon, RefreshCw, Loader } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
@@ -39,10 +39,11 @@ interface Operation {
 }
 
 export default function Schedule() {
-  const { user } = useAuth();
+  const { user, googleAccessToken } = useAuth();
   const navigate = useNavigate();
   const [events, setEvents] = useState<InspectionEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [view, setView] = useState<View>(Views.MONTH);
   const [date, setDate] = useState(new Date());
 
@@ -67,15 +68,22 @@ export default function Schedule() {
             snapshot.forEach((doc) => {
               const data = doc.data();
               if (data.date) {
-                // Parse the date (assuming 'YYYY-MM-DD' format from date input)
+                // Parse the start date (YYYY-MM-DD format)
                 const [year, month, day] = data.date.split('-');
-                const eventDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                const startDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+
+                // Parse the end date if present; otherwise default to start date
+                let endDate = startDate;
+                if (data.endDate) {
+                  const [eYear, eMonth, eDay] = data.endDate.split('-');
+                  endDate = new Date(parseInt(eYear), parseInt(eMonth) - 1, parseInt(eDay));
+                }
 
                 eventsData.push({
                   id: doc.id,
                   title: `${opsMap.get(data.operationId) || 'Unknown Operation'} (${data.status})`,
-                  start: eventDate,
-                  end: eventDate,
+                  start: startDate,
+                  end: endDate,
                   status: data.status,
                   operationId: data.operationId,
                 });
@@ -106,6 +114,68 @@ export default function Schedule() {
 
   const handleSelectEvent = (event: InspectionEvent) => {
     navigate(`/inspections/${event.id}`);
+  };
+
+  const handleGoogleCalendarSync = async () => {
+    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    if (!token || token === 'dummy') {
+      alert('Please sign in with Google to sync to Calendar. If you are signed in, your session may have expired — try signing out and back in.');
+      return;
+    }
+
+    const scheduledEvents = events.filter(e => e.status === 'Scheduled');
+    if (scheduledEvents.length === 0) {
+      alert('No "Scheduled" inspections to sync.');
+      return;
+    }
+
+    setSyncing(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const event of scheduledEvents) {
+      try {
+        // Google Calendar all-day events use exclusive end dates (end = day after last day)
+        const gcalEnd = addDays(event.end, 1);
+
+        const calendarEvent = {
+          summary: event.title,
+          description: `Inspection ID: ${event.id}\nManaged via DIOS Studio.`,
+          start: { date: format(event.start, 'yyyy-MM-dd') },
+          end: { date: format(gcalEnd, 'yyyy-MM-dd') },
+        };
+
+        const response = await fetch(
+          'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(calendarEvent),
+          }
+        );
+
+        if (response.ok) {
+          successCount++;
+        } else {
+          failCount++;
+          console.error('Failed to create calendar event:', await response.text());
+        }
+      } catch (err) {
+        failCount++;
+        console.error('Calendar event creation error:', err);
+      }
+    }
+
+    setSyncing(false);
+
+    if (failCount === 0) {
+      alert(`Successfully synced ${successCount} inspection(s) to Google Calendar!`);
+    } else {
+      alert(`Synced ${successCount} inspection(s) to Google Calendar. ${failCount} failed — check the console for details.`);
+    }
   };
 
   const eventStyleGetter = (event: InspectionEvent) => {
@@ -150,8 +220,13 @@ export default function Schedule() {
           </div>
         </div>
 
-        <button className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm">
-          <RefreshCw size={16} /> Sync to Google Calendar
+        <button
+          onClick={handleGoogleCalendarSync}
+          disabled={syncing}
+          className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
+        >
+          {syncing ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+          {syncing ? 'Syncing…' : 'Sync to Google Calendar'}
         </button>
       </div>
 

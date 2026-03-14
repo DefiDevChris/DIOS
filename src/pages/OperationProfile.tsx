@@ -8,10 +8,10 @@ import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHand
 import { configStore } from '../lib/configStore';
 import { uploadToDrive } from '../lib/driveSync';
 import { getStoredLocalFolder, writeLocalFile } from '../lib/localFsSync';
-import { 
-  ArrowLeft, Check, Search, FileText, Receipt, CheckCircle, 
-  MapPin, Phone, Mail, Building2, Calendar, Edit3, CloudUpload, 
-  Clock, Plus, File, MoreVertical, Map as MapIcon
+import {
+  ArrowLeft, Check, Search, FileText, Receipt, CheckCircle,
+  MapPin, Phone, Mail, Building2, Calendar, Edit3, CloudUpload,
+  Clock, Plus, File, MoreVertical, Map as MapIcon, ExternalLink, X
 } from 'lucide-react';
 
 interface Operation {
@@ -73,6 +73,16 @@ export default function OperationProfile() {
   const [inspections, setInspections] = useState<any[]>([]);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleEndDate, setScheduleEndDate] = useState('');
+
+  // Gmail CRM state
+  const [showGmailPanel, setShowGmailPanel] = useState(false);
+  const [gmailThreads, setGmailThreads] = useState<{ id: string; snippet: string }[]>([]);
+  const [loadingThreads, setLoadingThreads] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   useEffect(() => {
     if (!user || !id) return;
@@ -205,6 +215,92 @@ export default function OperationProfile() {
     }
   };
 
+  // --- Gmail CRM ---
+
+  const loadGmailThreads = async () => {
+    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    if (!token || token === 'dummy') {
+      alert('Please sign in with Google to view Gmail threads.');
+      return;
+    }
+    if (!operation?.email) {
+      alert('No contact email set for this operation.');
+      return;
+    }
+    setLoadingThreads(true);
+    try {
+      const q = `to:${operation.email} OR from:${operation.email}`;
+      const res = await fetch(
+        `https://www.googleapis.com/gmail/v1/users/me/threads?q=${encodeURIComponent(q)}&maxResults=10`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
+      const data = await res.json();
+      setGmailThreads(data.threads || []);
+    } catch (error: any) {
+      console.error('Failed to fetch Gmail threads:', error);
+      alert(`Failed to fetch email threads: ${error.message}`);
+    } finally {
+      setLoadingThreads(false);
+    }
+  };
+
+  const sendTemplatedEmail = async () => {
+    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    if (!token || token === 'dummy') {
+      alert('Please sign in with Google to send emails.');
+      return;
+    }
+    if (!operation?.email) {
+      alert('No contact email set for this operation.');
+      return;
+    }
+    setSendingEmail(true);
+    try {
+      const to = operation.email;
+      const subject = emailSubject || `Inspection Follow-up: ${operation.name}`;
+      const body = emailBody ||
+        `Dear ${operation.contactName || 'Sir/Madam'},\n\nThis is a follow-up regarding the inspection at ${operation.name}.\n\nPlease feel free to reach out with any questions.\n\nBest regards`;
+
+      // Build RFC 2822 message
+      const message = [
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        'Content-Type: text/plain; charset=UTF-8',
+        'MIME-Version: 1.0',
+        '',
+        body,
+      ].join('\r\n');
+
+      // Base64url encode
+      const encoded = btoa(unescape(encodeURIComponent(message)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw: encoded }),
+      });
+
+      if (!res.ok) throw new Error(`Gmail send error: ${res.status} ${await res.text()}`);
+
+      await logActivity('email', `Email sent to ${to}: "${subject}"`);
+      setComposeOpen(false);
+      setEmailSubject('');
+      setEmailBody('');
+      alert('Email sent successfully!');
+    } catch (error: any) {
+      console.error('Failed to send email:', error);
+      alert(`Failed to send email: ${error.message}`);
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  // --- Scheduling ---
+
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !id || !scheduleDate) return;
@@ -216,6 +312,7 @@ export default function OperationProfile() {
       await setDoc(newInspectionRef, {
         operationId: id,
         date: scheduleDate,
+        ...(scheduleEndDate && scheduleEndDate !== scheduleDate ? { endDate: scheduleEndDate } : {}),
         status: 'Scheduled',
         baseHoursLog: 0,
         additionalHoursLog: 0,
@@ -230,6 +327,7 @@ export default function OperationProfile() {
       
       setIsScheduleModalOpen(false);
       setScheduleDate('');
+      setScheduleEndDate('');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/inspections`);
     }
@@ -347,12 +445,13 @@ export default function OperationProfile() {
             >
               <Calendar size={16} /> Schedule
             </button>
-            <button 
-              onClick={() => {
-                logActivity('email', 'Email sent to operator');
-                window.location.href = `mailto:${operation.email || ''}`;
-              }}
-              className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm"
+            <button
+              onClick={() => setShowGmailPanel(prev => !prev)}
+              className={`px-4 py-2 border rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm ${
+                showGmailPanel
+                  ? 'bg-[#D49A6A] border-[#D49A6A] text-white'
+                  : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
+              }`}
             >
               <Mail size={16} /> Email
             </button>
@@ -413,8 +512,120 @@ export default function OperationProfile() {
         </div>
       </div>
 
+      {/* Gmail CRM Panel */}
+      {showGmailPanel && (
+        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100 mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Mail size={18} className="text-[#D49A6A]" />
+              <h2 className="text-base font-bold text-stone-900">Gmail CRM</h2>
+              {operation.email && (
+                <span className="text-xs text-stone-500 bg-stone-100 px-2 py-0.5 rounded-full">{operation.email}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setComposeOpen(true)}
+                className="px-4 py-1.5 bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl text-xs font-medium transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                <Mail size={14} /> Compose
+              </button>
+              <button
+                onClick={loadGmailThreads}
+                disabled={loadingThreads}
+                className="px-4 py-1.5 bg-white border border-stone-200 text-stone-700 rounded-xl text-xs font-medium hover:bg-stone-50 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+              >
+                {loadingThreads ? 'Loading...' : 'Load Threads'}
+              </button>
+            </div>
+          </div>
+
+          {gmailThreads.length === 0 && !loadingThreads ? (
+            <div className="py-6 text-center text-stone-500 text-sm">
+              No threads loaded. Click "Load Threads" to fetch email history for this contact.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {gmailThreads.map(thread => (
+                <a
+                  key={thread.id}
+                  href={`https://mail.google.com/mail/u/0/#all/${thread.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start gap-3 p-3 rounded-xl border border-stone-100 hover:bg-stone-50 transition-colors group"
+                >
+                  <div className="w-8 h-8 rounded-full bg-[#D49A6A]/10 flex items-center justify-center shrink-0">
+                    <Mail size={14} className="text-[#D49A6A]" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-stone-700 truncate">{thread.snippet || 'No preview available'}</p>
+                    <p className="text-xs text-stone-400 mt-0.5">Thread ID: {thread.id}</p>
+                  </div>
+                  <ExternalLink size={14} className="text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1" />
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Compose Email Modal */}
+      {composeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-stone-100 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-stone-900">Compose Email</h2>
+              <button onClick={() => setComposeOpen(false)} className="text-stone-400 hover:text-stone-600">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">To</label>
+                <div className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm text-stone-600">{operation.email || 'No email set'}</div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Subject</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder={`Inspection Follow-up: ${operation.name}`}
+                  className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Message</label>
+                <textarea
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  rows={6}
+                  placeholder={`Dear ${operation.contactName || 'Sir/Madam'},\n\nThis is a follow-up regarding the inspection at ${operation.name}.\n\nBest regards`}
+                  className="w-full resize-none bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-end gap-3">
+              <button
+                onClick={() => setComposeOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-200/50 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={sendTemplatedEmail}
+                disabled={sendingEmail || !operation.email}
+                className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+              >
+                {sendingEmail ? 'Sending...' : 'Send Email'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
+
         {/* Left Column: Business Info & Map */}
         <div className="lg:col-span-4 flex flex-col gap-6">
           {/* Business Info */}
@@ -656,23 +867,33 @@ export default function OperationProfile() {
               <p className="text-sm text-stone-500 mt-1">Select a date for the upcoming inspection.</p>
             </div>
             
-            <form id="schedule-form" onSubmit={handleSchedule} className="p-6">
+            <form id="schedule-form" onSubmit={handleSchedule} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Date</label>
-                <input 
-                  type="date" 
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Start Date</label>
+                <input
+                  type="date"
                   required
                   value={scheduleDate}
                   onChange={(e) => setScheduleDate(e.target.value)}
                   className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">End Date <span className="font-normal text-stone-400 normal-case">(optional, for multi-day)</span></label>
+                <input
+                  type="date"
+                  value={scheduleEndDate}
+                  min={scheduleDate || undefined}
+                  onChange={(e) => setScheduleEndDate(e.target.value)}
+                  className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                />
+              </div>
             </form>
             
             <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-end gap-3 shrink-0">
-              <button 
+              <button
                 type="button"
-                onClick={() => setIsScheduleModalOpen(false)}
+                onClick={() => { setIsScheduleModalOpen(false); setScheduleDate(''); setScheduleEndDate(''); }}
                 className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-200/50 rounded-xl transition-colors"
               >
                 Cancel

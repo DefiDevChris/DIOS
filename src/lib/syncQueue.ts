@@ -1,6 +1,7 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { db as firestoreDb } from '../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import { getStoredLocalFolder, writeLocalFile } from './localFsSync';
 
 // --- Types ---
 
@@ -10,6 +11,12 @@ export interface QueueItemMetadata {
   fileName: string;
   year: number;
   uid: string;
+  /**
+   * Parent folder name inside "DIOS Master Inspections Database" to upload into.
+   * Defaults to 'Unassigned Uploads' if omitted.
+   * e.g. 'Reports', 'Receipts', 'Agencies'
+   */
+  folderName?: string;
   /** Firestore document path to update with driveFileId after upload, e.g. "users/{uid}/expenses/{docId}" */
   firestoreDocPath?: string;
   /** Field name in Firestore to write the Drive file ID into (default: "receiptFileId") */
@@ -63,6 +70,8 @@ const initDB = () => {
  * Add a file to the offline sync queue.
  * Optionally provide a firestoreDocPath so the queue processor can write
  * the resulting driveFileId back to Firestore after a successful upload.
+ * Optionally provide a folderName to place the file in a specific subfolder
+ * of "DIOS Master Inspections Database" (defaults to "Unassigned Uploads").
  */
 export const queueFile = async (
   blob: Blob,
@@ -220,14 +229,38 @@ const updateFirestoreWithDriveId = async (
   await updateDoc(docRef, { [fieldName]: driveFileId });
 };
 
+/**
+ * Mirror a successfully uploaded file to the user's linked local folder,
+ * maintaining the same nested hierarchy used in Drive:
+ * DIOS Master Inspections Database / {folderName} / {YYYY} / {fileName}
+ */
+const mirrorToLocalFolder = async (
+  blob: Blob,
+  fileName: string,
+  folderName: string,
+  year: number
+): Promise<void> => {
+  try {
+    const localHandle = await getStoredLocalFolder(false); // never prompt from background
+    if (!localHandle) return;
+
+    const file = new File([blob], fileName, { type: blob.type });
+    await writeLocalFile(localHandle, ['DIOS Master Inspections Database', folderName, String(year)], file);
+    console.log(`[SyncQueue] Mirrored ${fileName} to local folder.`);
+  } catch (error) {
+    // Local mirror failure is non-fatal
+    console.warn('[SyncQueue] Failed to mirror file locally:', error);
+  }
+};
+
 // --- Queue processor ---
 
 let isProcessing = false;
 
 /**
  * Process all pending and retriable items in the queue.
- * Automatically creates the "Unassigned Uploads / {YYYY}" folder hierarchy,
- * uploads each file, updates Firestore, and removes completed items.
+ * Automatically creates the appropriate folder hierarchy in Drive,
+ * uploads each file, updates Firestore, mirrors to local folder, and removes completed items.
  * Failed items are kept with incremented retry counts for automatic retry.
  */
 export const processQueue = async (accessToken?: string | null) => {
@@ -268,8 +301,8 @@ export const processQueue = async (accessToken?: string | null) => {
 
     if (eligible.length === 0) return;
 
-    // Pre-resolve the base folder once for the batch
-    const baseFolderId = await findOrCreateFolder('Unassigned Uploads', accessToken);
+    // Pre-resolve the DIOS master root folder once for the batch
+    const masterFolderId = await findOrCreateFolder('DIOS Master Inspections Database', accessToken);
 
     for (const item of eligible) {
       // Mark as uploading
@@ -277,11 +310,15 @@ export const processQueue = async (accessToken?: string | null) => {
       item.lastAttemptAt = Date.now();
       await db.put('FileQueue', item);
 
+      const targetFolderName = item.metadata.folderName || 'Unassigned Uploads';
+
       try {
+        // Resolve or create: Master / {folderName} / {YYYY}
+        const parentFolderId = await findOrCreateFolder(targetFolderName, accessToken, masterFolderId);
         const yearFolderId = await findOrCreateFolder(
           item.metadata.year.toString(),
           accessToken,
-          baseFolderId
+          parentFolderId
         );
 
         const driveFileId = await uploadFileToDrive(
@@ -300,6 +337,14 @@ export const processQueue = async (accessToken?: string | null) => {
             fieldName
           );
         }
+
+        // Mirror to local folder (non-fatal if it fails)
+        await mirrorToLocalFolder(
+          item.blob,
+          item.metadata.fileName,
+          targetFolderName,
+          item.metadata.year
+        );
 
         // Success — remove from queue
         await db.delete('FileQueue', item.id);
