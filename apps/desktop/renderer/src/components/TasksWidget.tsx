@@ -1,33 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, query, where, orderBy } from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { CheckSquare, Square, Trash2, Plus, Calendar, Tag } from 'lucide-react';
+import type { Task, Operation, Inspection } from '@dios/shared/types';
 
-interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  status: 'pending' | 'completed';
-  createdAt: string;
-  dueDate?: string;
-  operationId?: string;
-  inspectionId?: string;
-}
 
-interface Operation {
-  id: string;
-  name: string;
-  lat?: number;
-  lng?: number;
-}
-
-interface Inspection {
-  id: string;
-  operationId: string;
-  date: string;
-}
 
 interface TasksWidgetProps {
   operationId?: string;
@@ -37,6 +15,9 @@ interface TasksWidgetProps {
 
 export default function TasksWidget({ operationId, inspectionId, title = "Tasks & Follow-ups" }: TasksWidgetProps) {
   const { user } = useAuth();
+  const { findAll, save, remove } = useDatabase<Task>({ table: 'tasks' });
+  const { findAll: findAllOperations } = useDatabase<Operation>({ table: 'operations' });
+  const { findAll: findAllInspections } = useDatabase<Inspection>({ table: 'inspections' });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [operations, setOperations] = useState<Operation[]>([]);
   const [inspections, setInspections] = useState<Inspection[]>([]);
@@ -52,57 +33,35 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
   useEffect(() => {
     if (!user) return;
 
-    let q = query(collection(db, `users/${user.uid}/tasks`), orderBy('createdAt', 'desc'));
-    
+    const filters: Record<string, unknown> = {};
     if (operationId) {
-      q = query(collection(db, `users/${user.uid}/tasks`), where('operationId', '==', operationId));
+      filters.operationId = operationId;
     } else if (inspectionId) {
-      q = query(collection(db, `users/${user.uid}/tasks`), where('inspectionId', '==', inspectionId));
+      filters.inspectionId = inspectionId;
     }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const tasksData: Task[] = [];
-      snapshot.forEach((doc) => {
-        tasksData.push(doc.data() as Task);
-      });
-      // Sort in memory if we used where clause without orderby (due to index requirements)
-      if (operationId || inspectionId) {
-        tasksData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      }
+    findAll(filters).then((tasksData) => {
+      // Sort by createdAt desc
+      tasksData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setTasks(tasksData);
-    }, (error) => {
+    }).catch((error) => {
       handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/tasks`);
     });
-
-    return () => unsubscribe();
-  }, [user, operationId, inspectionId]);
+  }, [user, operationId, inspectionId, findAll]);
 
   useEffect(() => {
     if (!user) return;
     
     // Fetch operations for tagging
-    const unsubOps = onSnapshot(collection(db, `users/${user.uid}/operations`), (snapshot) => {
-      const opsData: Operation[] = [];
-      snapshot.forEach((doc) => {
-        opsData.push({ id: doc.id, name: doc.data().name });
-      });
+    findAllOperations().then((opsData) => {
       setOperations(opsData);
     });
 
     // Fetch inspections for tagging
-    const unsubInsps = onSnapshot(collection(db, `users/${user.uid}/inspections`), (snapshot) => {
-      const inspData: Inspection[] = [];
-      snapshot.forEach((doc) => {
-        inspData.push({ id: doc.id, operationId: doc.data().operationId, date: doc.data().date });
-      });
+    findAllInspections().then((inspData) => {
       setInspections(inspData);
     });
-
-    return () => {
-      unsubOps();
-      unsubInsps();
-    };
-  }, [user]);
+  }, [user, findAllOperations, findAllInspections]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -150,15 +109,24 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
       title: newTaskTitle.trim(),
       status: 'pending',
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      syncStatus: 'pending',
       operationId: operationId || taggedOperation?.id || taggedInspection?.operationId,
       inspectionId: inspectionId || taggedInspection?.id
     };
 
     try {
-      await setDoc(doc(db, `users/${user.uid}/tasks/${taskId}`), task);
+      await save(task);
       setNewTaskTitle('');
       setTaggedOperation(null);
       setTaggedInspection(null);
+      // Refresh tasks list
+      const filters: Record<string, unknown> = {};
+      if (operationId) filters.operationId = operationId;
+      else if (inspectionId) filters.inspectionId = inspectionId;
+      const updatedTasks = await findAll(filters);
+      updatedTasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setTasks(updatedTasks);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/tasks`);
     }
@@ -167,9 +135,17 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
   const toggleTaskStatus = async (task: Task) => {
     if (!user) return;
     try {
-      await updateDoc(doc(db, `users/${user.uid}/tasks/${task.id}`), {
+      await save({
+        ...task,
         status: task.status === 'pending' ? 'completed' : 'pending'
       });
+      // Refresh tasks list
+      const filters: Record<string, unknown> = {};
+      if (operationId) filters.operationId = operationId;
+      else if (inspectionId) filters.inspectionId = inspectionId;
+      const updatedTasks = await findAll(filters);
+      updatedTasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setTasks(updatedTasks);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/tasks`);
     }
@@ -178,7 +154,14 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
   const deleteTask = async (taskId: string) => {
     if (!user) return;
     try {
-      await deleteDoc(doc(db, `users/${user.uid}/tasks/${taskId}`));
+      await remove(taskId);
+      // Refresh tasks list
+      const filters: Record<string, unknown> = {};
+      if (operationId) filters.operationId = operationId;
+      else if (inspectionId) filters.inspectionId = inspectionId;
+      const updatedTasks = await findAll(filters);
+      updatedTasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setTasks(updatedTasks);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/tasks`);
     }

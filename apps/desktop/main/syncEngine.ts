@@ -1,4 +1,5 @@
 import { getDatabase } from './database'
+import { logger } from '@dios/shared'
 
 type SyncState = 'idle' | 'syncing' | 'error'
 
@@ -20,6 +21,7 @@ const TABLES_TO_SYNC = [
   'operation_documents',
   'operation_activities',
   'unassigned_uploads',
+  'system_config',
 ] as const
 
 const BOOLEAN_FIELDS = new Set([
@@ -36,21 +38,31 @@ export function getSyncState(): SyncState {
 }
 
 export function getPendingCount(): number {
-  const db = getDatabase()
-  let total = 0
-  for (const table of TABLES_TO_SYNC) {
-    const row = db.prepare(
-      `SELECT COUNT(*) as count FROM ${table} WHERE syncStatus = 'pending'`
-    ).get() as { count: number }
-    total += row.count
+  try {
+    const db = getDatabase()
+    let total = 0
+    for (const table of TABLES_TO_SYNC) {
+      const row = db.prepare(
+        `SELECT COUNT(*) as count FROM ${table} WHERE syncStatus = 'pending'`
+      ).get() as { count: number }
+      total += row.count
+    }
+    return total
+  } catch (error) {
+    logger.error('Failed to get pending count:', error)
+    return 0
   }
-  return total
 }
 
 export async function syncTable(
   table: string,
   config: SyncConfig,
 ): Promise<{ synced: number; failed: number }> {
+  // Special handling for system_config - it's a single document, not a collection
+  if (table === 'system_config') {
+    return syncSystemConfig(config)
+  }
+
   const db = getDatabase()
   const pending = db.prepare(
     `SELECT * FROM ${table} WHERE syncStatus = 'pending'`
@@ -65,7 +77,9 @@ export async function syncTable(
     ? null
     : `users/${config.userId}/${table}`
 
+  // Process each record atomically - update local status only after Firestore confirms
   for (const record of pending) {
+    let pushSuccess = false
     try {
       if (!collectionPath) {
         const opId = record['operationId'] as string
@@ -75,21 +89,136 @@ export async function syncTable(
       } else {
         await pushToFirestore(collectionPath, record, config)
       }
+      pushSuccess = true
+    } catch (error) {
+      logger.error(`Failed to push record ${record['id']} to Firestore:`, error)
+    }
 
-      db.prepare(
-        `UPDATE ${table} SET syncStatus = 'synced' WHERE id = ?`
-      ).run(record['id'])
-
-      synced++
-    } catch {
-      db.prepare(
-        `UPDATE ${table} SET syncStatus = 'failed' WHERE id = ?`
-      ).run(record['id'])
+    // Update local status after Firestore operation completes
+    try {
+      if (pushSuccess) {
+        db.prepare(
+          `UPDATE ${table} SET syncStatus = 'synced' WHERE id = ?`
+        ).run(record['id'])
+        synced++
+      } else {
+        db.prepare(
+          `UPDATE ${table} SET syncStatus = 'failed' WHERE id = ?`
+        ).run(record['id'])
+        failed++
+      }
+    } catch (dbError) {
+      logger.error(`Failed to update sync status for record ${record['id']}:`, dbError)
       failed++
     }
   }
 
   return { synced, failed }
+}
+
+async function syncSystemConfig(config: SyncConfig): Promise<{ synced: number; failed: number }> {
+  const db = getDatabase()
+  
+  // Use a transaction to prevent race conditions
+  // Capture all pending records atomically at the start
+  const transaction = db.transaction(() => {
+    const pending = db.prepare(
+      `SELECT * FROM system_config WHERE syncStatus = 'pending' ORDER BY key`
+    ).all() as Array<{ key: string; value: string; updatedAt: string }>
+    
+    // Mark records as syncing to prevent concurrent processing
+    for (const record of pending) {
+      db.prepare(`UPDATE system_config SET syncStatus = 'syncing' WHERE key = ?`).run(record.key)
+    }
+    
+    return pending
+  })
+  
+  const pending = transaction() as Array<{ key: string; value: string; updatedAt: string }>
+  
+  if (pending.length === 0) {
+    return { synced: 0, failed: 0 }
+  }
+
+  let synced = 0
+  let failed = 0
+
+  try {
+    // Build the document path - system_settings/config
+    const docPath = `users/${config.userId}/system_settings/config`
+    
+    // Convert key-value pairs to a document
+    const fields: Record<string, unknown> = {}
+    
+    for (const row of pending) {
+      // Try to parse as JSON, otherwise store as string
+      try {
+        fields[row.key] = JSON.parse(row.value)
+      } catch {
+        fields[row.key] = row.value
+      }
+    }
+    
+    await pushDocumentToFirestore(docPath, fields, config)
+    
+    // Mark all as synced
+    for (const row of pending) {
+      db.prepare(`UPDATE system_config SET syncStatus = 'synced' WHERE key = ?`).run(row.key)
+    }
+    
+    synced = pending.length
+  } catch (error) {
+    logger.error('Failed to sync system_config:', error)
+    // Mark all syncing records as failed
+    for (const row of pending) {
+      db.prepare(`UPDATE system_config SET syncStatus = 'failed' WHERE key = ?`).run(row.key)
+    }
+    failed = pending.length
+  }
+
+  return { synced, failed }
+}
+
+async function pushDocumentToFirestore(
+  documentPath: string,
+  fields: Record<string, unknown>,
+  config: SyncConfig,
+): Promise<void> {
+  const url = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/(default)/documents/${documentPath}`
+
+  const firestoreFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === null || value === undefined) {
+      firestoreFields[key] = { nullValue: null }
+      continue
+    }
+    if (typeof value === 'boolean') {
+      firestoreFields[key] = { booleanValue: value }
+    } else if (typeof value === 'string') {
+      firestoreFields[key] = { stringValue: value }
+    } else if (typeof value === 'number') {
+      firestoreFields[key] = Number.isInteger(value)
+        ? { integerValue: String(value) }
+        : { doubleValue: value }
+    } else if (typeof value === 'object') {
+      firestoreFields[key] = { 
+        stringValue: JSON.stringify(value) 
+      }
+    }
+  }
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${config.firestoreToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields: firestoreFields }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Firestore sync failed: ${response.status} ${response.statusText}`)
+  }
 }
 
 async function pushToFirestore(
@@ -169,24 +298,38 @@ export async function pullUnassignedUploads(config: SyncConfig): Promise<number>
   return pulled
 }
 
-export function startSync(config: SyncConfig, intervalMs = 60_000): void {
-  if (syncInterval) return
-
-  const runSync = async () => {
-    syncState = 'syncing'
-    try {
-      await pullUnassignedUploads(config)
-      for (const table of TABLES_TO_SYNC) {
-        await syncTable(table, config)
-      }
-      syncState = 'idle'
-    } catch {
-      syncState = 'error'
+export function startSync(config: SyncConfig, intervalMs = 60_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (syncInterval) {
+      resolve()
+      return
     }
-  }
 
-  runSync()
-  syncInterval = setInterval(runSync, intervalMs)
+    const runSync = async () => {
+      syncState = 'syncing'
+      try {
+        await pullUnassignedUploads(config)
+        for (const table of TABLES_TO_SYNC) {
+          await syncTable(table, config)
+        }
+        syncState = 'idle'
+      } catch (error) {
+        logger.error('Sync loop failed:', error)
+        syncState = 'error'
+      }
+    }
+
+    runSync()
+      .then(() => {
+        syncInterval = setInterval(runSync, intervalMs)
+        resolve()
+      })
+      .catch((error) => {
+        logger.error('Failed to start sync:', error)
+        syncState = 'error'
+        reject(error)
+      })
+  })
 }
 
 export function stopSync(): void {

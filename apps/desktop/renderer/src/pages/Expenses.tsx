@@ -1,31 +1,30 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation } from 'react-router';
-import { collection, query, orderBy, onSnapshot, doc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '@dios/shared/firebase';
 import { Wallet, Plus, Trash2, FileText, Search, Link as LinkIcon, DollarSign, Camera, Upload, PenLine, X, FolderOpen } from 'lucide-react';
 import { logger } from '@dios/shared';
 import ReceiptScanner from '../components/ReceiptScanner';
 import { format } from 'date-fns';
 import Swal from 'sweetalert2';
+import { useDatabase } from '../hooks/useDatabase';
+import type { Expense } from '@dios/shared/types';
 
-interface Expense {
-  id: string;
-  vendor: string;
-  amount: number;
-  date: string;
-  notes: string;
+// Extended Expense interface with local fields
+type ExtendedExpense = Expense & {
+  createdAt: string;
   receiptFileName?: string;
-  receiptFileId?: string;
-  createdAt: any;
-}
+};
 
 type ReceiptMode = 'camera' | 'manual' | 'uploads' | 'local-upload' | null;
 
 export default function Expenses() {
   const { user, googleAccessToken, isLocalUser } = useAuth();
   const location = useLocation();
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+  
+  // Database hooks
+  const { findAll: findAllExpenses, remove: removeExpense, save: saveExpense } = useDatabase<ExtendedExpense>({ table: 'expenses' });
+  
+  const [expenses, setExpenses] = useState<ExtendedExpense[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModeSelect, setShowModeSelect] = useState(false);
@@ -36,32 +35,30 @@ export default function Expenses() {
   const [assigningFileId, setAssigningFileId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user || isLocalUser || !db) {
+    if (!user || isLocalUser) {
       setLoading(false);
       return;
     }
 
-    const q = query(
-      collection(db, 'users', user.uid, 'expenses'),
-      orderBy('date', 'desc'),
-      orderBy('createdAt', 'desc')
-    );
+    const fetchExpenses = async () => {
+      try {
+        const data = await findAllExpenses();
+        // Sort by date desc, then createdAt desc
+        const sorted = data.sort((a, b) => {
+          const dateCompare = b.date.localeCompare(a.date);
+          if (dateCompare !== 0) return dateCompare;
+          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        });
+        setExpenses(sorted);
+      } catch (error) {
+        logger.error("Error fetching expenses:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const expensesData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Expense[];
-
-      setExpenses(expensesData);
-      setLoading(false);
-    }, (error) => {
-      logger.error("Error fetching expenses:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [user, isLocalUser]);
+    fetchExpenses();
+  }, [user, isLocalUser, findAllExpenses]);
 
   // Auto-open "Add Receipt" modal when navigated here with ?new=1
   useEffect(() => {
@@ -72,17 +69,23 @@ export default function Expenses() {
   }, [location.search]);
 
   const confirmDelete = async () => {
-    if (!user || !expenseToDelete || isLocalUser || !db) {
+    if (!user || !expenseToDelete || isLocalUser) {
       Swal.fire({ text: 'Cannot delete expense in offline mode.', icon: 'warning' });
       return;
     }
 
     try {
-      // Dismiss modal optimistically — the local cache processes the delete immediately
-      // even when the network is disabled; the server sync happens in the background.
       const idToDelete = expenseToDelete;
       setExpenseToDelete(null);
-      await deleteDoc(doc(db, 'users', user.uid, 'expenses', idToDelete));
+      await removeExpense(idToDelete);
+      // Refresh expenses list
+      const updatedExpenses = await findAllExpenses();
+      const sorted = updatedExpenses.sort((a, b) => {
+        const dateCompare = b.date.localeCompare(a.date);
+        if (dateCompare !== 0) return dateCompare;
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+      setExpenses(sorted);
     } catch (error) {
       logger.error('Error deleting expense:', error);
       Swal.fire({ text: 'Failed to delete expense.', icon: 'error' });
@@ -90,13 +93,22 @@ export default function Expenses() {
   };
 
   const fetchUnassignedUploads = async () => {
-    if (!user || !googleAccessToken || isLocalUser || !db) return;
+    if (!user || !googleAccessToken || isLocalUser) return;
     setLoadingUploads(true);
 
     try {
-      const configRef = doc(db, `users/${user.uid}/system_settings/config`);
-      const configSnap = await getDoc(configRef);
-      const folderId = configSnap.data()?.driveFolders?.unassignedId;
+      // Get Drive folder from config stored in Firestore
+      const projectId = (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || '';
+      const configRes = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${user.uid}/system_settings/config`,
+        { headers: { Authorization: `Bearer ${await user.getIdToken()}` } }
+      );
+      
+      let folderId: string | undefined;
+      if (configRes.ok) {
+        const configData = await configRes.json();
+        folderId = configData.fields?.driveFolders?.mapValue?.fields?.unassignedId?.stringValue;
+      }
 
       if (!folderId) {
         setUnassignedFiles([]);
@@ -123,17 +135,27 @@ export default function Expenses() {
   };
 
   const assignFileAsReceipt = async (file: { id: string; name: string }) => {
-    if (!user || isLocalUser || !db) {
+    if (!user || isLocalUser) {
       Swal.fire({ text: 'Cannot assign receipt in offline mode.', icon: 'warning' });
       return;
     }
     setAssigningFileId(file.id);
 
     try {
-      const configRef = doc(db, `users/${user.uid}/system_settings/config`);
-      const configSnap = await getDoc(configRef);
-      const receiptsId = configSnap.data()?.driveFolders?.receiptsId;
-      const unassignedId = configSnap.data()?.driveFolders?.unassignedId;
+      // Get config
+      const projectId = (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || '';
+      const configRes = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${user.uid}/system_settings/config`,
+        { headers: { Authorization: `Bearer ${await user.getIdToken()}` } }
+      );
+      
+      let receiptsId: string | undefined;
+      let unassignedId: string | undefined;
+      if (configRes.ok) {
+        const configData = await configRes.json();
+        receiptsId = configData.fields?.driveFolders?.mapValue?.fields?.receiptsId?.stringValue;
+        unassignedId = configData.fields?.driveFolders?.mapValue?.fields?.unassignedId?.stringValue;
+      }
 
       if (receiptsId && unassignedId && googleAccessToken) {
         await fetch(
@@ -145,9 +167,8 @@ export default function Expenses() {
         );
       }
 
-      const expenseRef = doc(collection(db, `users/${user.uid}/expenses`));
-      // Await the write and show user notification on failure
-      await setDoc(expenseRef, {
+      await saveExpense({
+        id: crypto.randomUUID(),
         vendor: '',
         amount: 0,
         date: new Date().toISOString().split('T')[0],
@@ -155,7 +176,18 @@ export default function Expenses() {
         receiptFileName: file.name,
         receiptFileId: file.id,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        syncStatus: 'pending',
       });
+
+      // Refresh expenses list
+      const updatedExpenses = await findAllExpenses();
+      const sorted = updatedExpenses.sort((a, b) => {
+        const dateCompare = b.date.localeCompare(a.date);
+        if (dateCompare !== 0) return dateCompare;
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+      setExpenses(sorted);
 
       setUnassignedFiles(prev => prev.filter(f => f.id !== file.id));
       Swal.fire({ text: `Receipt "${file.name}" assigned successfully.`, icon: 'success', timer: 2000, showConfirmButton: false });
@@ -422,7 +454,17 @@ export default function Expenses() {
         <ReceiptScanner
           mode={receiptMode}
           onClose={() => setReceiptMode(null)}
-          onSuccess={() => {}}
+          onSuccess={() => {
+            // Refresh expenses after successful add
+            findAllExpenses().then(data => {
+              const sorted = data.sort((a, b) => {
+                const dateCompare = b.date.localeCompare(a.date);
+                if (dateCompare !== 0) return dateCompare;
+                return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+              });
+              setExpenses(sorted);
+            });
+          }}
         />
       )}
 

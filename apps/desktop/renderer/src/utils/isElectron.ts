@@ -5,7 +5,9 @@
  * This is the canonical check - individual features (fs, db, sync) should be checked
  * separately after confirming we're in Electron.
  */
-export const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
+export function isElectron(): boolean {
+  return typeof window !== 'undefined' && !!window.electronAPI;
+}
 
 /**
  * Type guard to check if a specific Electron API is available
@@ -13,6 +15,6 @@ export const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 export function hasElectronFeature(
   feature: 'fs' | 'db' | 'sync'
 ): boolean {
-  if (!isElectron) return false;
+  if (!isElectron()) return false;
   return !!window.electronAPI?.[feature];
 }

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
+import { useDatabase } from '../hooks/useDatabase';
+import { collection, getDocs, setDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@dios/shared/firebase';
-import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { configStore, logger } from '@dios/shared';
-import type { Agency, Inspection, ChecklistItem } from '@dios/shared';
+import type { Agency, Inspection, Operation, OperationDocument, OperationActivity, ChecklistItem } from '@dios/shared';
 import { uploadToDrive, getOperationDriveFolderUrl } from '../lib/driveSync';
 import { googleApiJson } from '@dios/shared';
 import { getStoredLocalFolder, writeLocalFile } from '../lib/localFsSync';
@@ -23,48 +24,28 @@ import StickyNote from '../components/StickyNote';
 import UnifiedActivityFeed from '../components/UnifiedActivityFeed';
 import NearbyOperatorsModal from '../components/NearbyOperatorsModal';
 
-interface LocalOperation {
-  id: string;
-  name: string;
-  address: string;
-  contactName: string;
-  phone: string;
-  email: string;
-  agencyId: string;
-  status: 'active' | 'inactive';
-  notes: string;
-  quickNote?: string;
-  operationType?: string;
-  clientId?: string;
-  lat?: number;
-  lng?: number;
-  cachedDistanceMiles?: number;
-  cachedDriveTimeMinutes?: number;
-}
-
-interface Document {
-  id: string;
-  name: string;
-  size: number;
-  type: string;
-  uploadedAt: string;
-  url?: string;
-}
-
 type TabId = 'overview' | 'inspections' | 'documents' | 'activity';
 
 export default function OperationProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user, googleAccessToken, isLocalUser } = useAuth();
+  const { user, googleAccessToken } = useAuth();
 
-  const [operation, setOperation] = useState<LocalOperation | null>(null);
+  // Database hooks
+  const { findById: findOperationById, save: saveOperation } = useDatabase<Operation>({ table: 'operations' });
+  const { findAll: findAllAgencies } = useDatabase<Agency>({ table: 'agencies' });
+  const { findAll: findAllDocuments, save: saveDocument } = useDatabase<OperationDocument>({ table: 'operation_documents' });
+  const { findAll: findAllActivities, save: saveActivity } = useDatabase<OperationActivity>({ table: 'operation_activities' });
+  const { findAll: findAllInspections } = useDatabase<Inspection>({ table: 'inspections' });
+  const { findAll: findAllOperations } = useDatabase<Operation>({ table: 'operations' });
+
+  const [operation, setOperation] = useState<Operation | null>(null);
   const [agency, setAgency] = useState<Agency | null>(null);
   const [loading, setLoading] = useState(true);
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [documents, setDocuments] = useState<OperationDocument[]>([]);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [inspections, setInspections] = useState<Inspection[]>([]);
-  const [allOperations, setAllOperations] = useState<LocalOperation[]>([]);
+  const [allOperations, setAllOperations] = useState<Operation[]>([]);
   const [allAgencies, setAllAgencies] = useState<Agency[]>([]);
 
   // Year & inspection
@@ -98,26 +79,25 @@ export default function OperationProfile() {
   const [emailBody, setEmailBody] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
 
-  // Load operation, agency, documents, inspections
+  // Load operation
   useEffect(() => {
-    if (!user || !id || isLocalUser || !db) {
+    if (!user || !id) {
       setLoading(false);
       return;
     }
 
-    const opPath = `users/${user.uid}/operations/${id}`;
-    const unsubOp = onSnapshot(
-      doc(db, opPath),
-      async (docSnapshot) => {
-        if (docSnapshot.exists()) {
-          const opData = { id: docSnapshot.id, ...docSnapshot.data() } as LocalOperation;
-          setOperation(opData);
+    const loadOperation = async () => {
+      try {
+        const op = await findOperationById(id);
+        if (op) {
+          setOperation(op);
 
-          if (opData.agencyId) {
+          // Load agency
+          if (op.agencyId) {
             try {
-              const agencyDocs = await getDocs(collection(db, `users/${user.uid}/agencies`));
-              const agencyDoc = agencyDocs.docs.find((d) => d.id === opData.agencyId);
-              if (agencyDoc) setAgency({ id: agencyDoc.id, ...agencyDoc.data() } as Agency);
+              const agencies = await findAllAgencies();
+              const ag = agencies.find((a) => a.id === op.agencyId);
+              if (ag) setAgency(ag);
             } catch (error) {
               logger.error('Error fetching agency:', error);
             }
@@ -125,56 +105,70 @@ export default function OperationProfile() {
         } else {
           navigate('/operations');
         }
-        setLoading(false);
-      },
-      (error) => handleFirestoreError(error, OperationType.GET, opPath)
-    );
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, `users/${user.uid}/operations/${id}`);
+      }
+      setLoading(false);
+    };
 
-    const docsPath = `users/${user.uid}/operations/${id}/documents`;
-    const unsubDocs = onSnapshot(
-      collection(db, docsPath),
-      (snapshot) => {
-        const docsData = snapshot.docs
-          .map((d) => ({ id: d.id, ...d.data() }) as Document)
-          .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
-        setDocuments(docsData);
-      },
-      (error) => handleFirestoreError(error, OperationType.GET, docsPath)
-    );
+    loadOperation();
+  }, [user, id, findOperationById, findAllAgencies, navigate]);
 
-    const inspPath = `users/${user.uid}/inspections`;
-    const unsubInsp = onSnapshot(
-      collection(db, inspPath),
-      (snapshot) => {
-        const data = snapshot.docs
-          .map((d) => ({ id: d.id, ...d.data() }) as Inspection)
+  // Load documents for this operation
+  useEffect(() => {
+    if (!user || !id) return;
+
+    const loadDocuments = async () => {
+      try {
+        const docs = await findAllDocuments({ operationId: id });
+        setDocuments(docs.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, `users/${user.uid}/operations/${id}/documents`);
+      }
+    };
+
+    loadDocuments();
+  }, [user, id, findAllDocuments]);
+
+  // Load inspections for this operation
+  useEffect(() => {
+    if (!user || !id) return;
+
+    const loadInspections = async () => {
+      try {
+        const allInspections = await findAllInspections();
+        const opInspections = allInspections
           .filter((i) => i.operationId === id)
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        setInspections(data);
-      },
-      (error) => handleFirestoreError(error, OperationType.GET, inspPath)
-    );
-
-    // Load all operations + agencies for nearby modal
-    const unsubAllOps = onSnapshot(collection(db, `users/${user.uid}/operations`), (snap) => {
-      setAllOperations(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as LocalOperation));
-    });
-    const unsubAllAgencies = onSnapshot(collection(db, `users/${user.uid}/agencies`), (snap) => {
-      setAllAgencies(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Agency));
-    });
-
-    return () => {
-      unsubOp();
-      unsubDocs();
-      unsubInsp();
-      unsubAllOps();
-      unsubAllAgencies();
+        setInspections(opInspections);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, `users/${user.uid}/inspections`);
+      }
     };
-  }, [user, id, navigate, isLocalUser]);
+
+    loadInspections();
+  }, [user, id, findAllInspections]);
+
+  // Load all operations + agencies for nearby modal
+  useEffect(() => {
+    if (!user) return;
+
+    const loadAllData = async () => {
+      try {
+        const [ops, ags] = await Promise.all([findAllOperations(), findAllAgencies()]);
+        setAllOperations(ops);
+        setAllAgencies(ags);
+      } catch (error) {
+        logger.error('Error loading nearby data:', error);
+      }
+    };
+
+    loadAllData();
+  }, [user, findAllOperations, findAllAgencies]);
 
   // Distance calculation on load
   useEffect(() => {
-    if (!user || !operation || !id || isLocalUser || !db) return;
+    if (!user || !operation || !id) return;
     if (operation.cachedDistanceMiles != null) return;
     if (!operation.lat || !operation.lng) return;
 
@@ -184,7 +178,7 @@ export default function OperationProfile() {
         if (!config?.googleMapsApiKey) return;
 
         // Load homebase from system_settings
-        const settingsDoc = await getDocs(collection(db, `users/${user.uid}/system_settings`));
+        const settingsDoc = await getDocs(collection(db!, `users/${user.uid}/system_settings`));
         const configDoc = settingsDoc.docs.find((d) => d.id === 'config');
         if (!configDoc) return;
         const settings = configDoc.data();
@@ -201,8 +195,8 @@ export default function OperationProfile() {
         );
         if (!result) return;
 
-        const opPath = `users/${user.uid}/operations/${id}`;
-        await updateDoc(doc(db, opPath), {
+        await saveOperation({
+          ...operation,
           cachedDistanceMiles: result.distanceMiles,
           cachedDriveTimeMinutes: result.durationMinutes,
         });
@@ -212,16 +206,14 @@ export default function OperationProfile() {
     };
 
     fetchDistance();
-  }, [user, operation, id, isLocalUser]);
+  }, [user, operation, id, saveOperation]);
 
   const logActivity = useCallback(
     async (type: string, description: string) => {
-      if (!user || !id || isLocalUser || !db) return;
-      const path = `users/${user.uid}/operation_activities`;
+      if (!user || !id) return;
       try {
-        const newRef = doc(collection(db, path));
-        await setDoc(newRef, {
-          id: newRef.id,
+        await saveActivity({
+          id: crypto.randomUUID(),
           operationId: id,
           type,
           description,
@@ -234,7 +226,7 @@ export default function OperationProfile() {
         Swal.fire({ text: 'Failed to log activity.', icon: 'error' });
       }
     },
-    [user, id, isLocalUser]
+    [user, id, saveActivity]
   );
 
   // Gmail CRM
@@ -341,10 +333,15 @@ export default function OperationProfile() {
       );
       if (response.ok) {
         const data = await response.json();
-        // Save the event ID back to the inspection
-        await updateDoc(doc(db, `users/${user.uid}/inspections/${inspectionId}`), {
-          googleCalendarEventId: data.id,
-        });
+        // Save the event ID back to the inspection via raw Firestore for now
+        // (inspection save would require Inspection hook)
+        if (db) {
+          await setDoc(
+            doc(db, `users/${user.uid}/inspections/${inspectionId}`),
+            { googleCalendarEventId: data.id },
+            { merge: true }
+          );
+        }
       }
     } catch (error) {
       logger.error('Failed to create calendar event:', error);
@@ -354,16 +351,14 @@ export default function OperationProfile() {
   // Scheduling
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !id || !scheduleDate || isLocalUser || !db) {
-      Swal.fire({ text: 'Cannot schedule inspection in offline mode.', icon: 'warning' });
+    if (!user || !id || !scheduleDate) {
+      Swal.fire({ text: 'Cannot schedule inspection.', icon: 'warning' });
       return;
     }
 
     try {
-      const inspectionsPath = `users/${user.uid}/inspections`;
-      const newRef = doc(collection(db, inspectionsPath));
-      await setDoc(newRef, {
-        id: newRef.id,
+      const newInspection: Inspection = {
+        id: crypto.randomUUID(),
         operationId: id,
         date: scheduleDate,
         ...(scheduleEndDate && scheduleEndDate !== scheduleDate ? { endDate: scheduleEndDate } : {}),
@@ -380,14 +375,26 @@ export default function OperationProfile() {
         calculatedDriveTime: 0,
         updatedAt: new Date().toISOString(),
         syncStatus: 'pending',
-      });
+      };
 
-      createCalendarEvent(newRef.id, operation.name, scheduleDate, operation.operationType).catch(() => {});
+      // Use raw Firestore for inspections since we don't have inspection save hook in this component
+      if (db) {
+        await setDoc(doc(db, `users/${user.uid}/inspections/${newInspection.id}`), newInspection);
+      }
+
+      createCalendarEvent(newInspection.id, operation!.name, scheduleDate, operation!.operationType).catch(() => {});
 
       await logActivity('schedule', `Inspection scheduled for ${formatDate(scheduleDate)}`);
       setIsScheduleModalOpen(false);
       setScheduleDate('');
       setScheduleEndDate('');
+
+      // Refresh inspections
+      const allInspections = await findAllInspections();
+      const opInspections = allInspections
+        .filter((i) => i.operationId === id)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setInspections(opInspections);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/inspections`);
       Swal.fire({ text: 'Failed to schedule inspection.', icon: 'error' });
@@ -396,13 +403,12 @@ export default function OperationProfile() {
 
   // Step completion
   const handleStepComplete = async (data: { hours: number; checklist: ChecklistItem[] }) => {
-    if (!user || !currentInspection || !activeStep || isLocalUser || !db) {
-      Swal.fire({ text: 'Cannot update inspection in offline mode.', icon: 'warning' });
+    if (!user || !currentInspection || !activeStep || !db) {
+      Swal.fire({ text: 'Cannot update inspection.', icon: 'warning' });
       return;
     }
 
-    const inspPath = `users/${user.uid}/inspections/${currentInspection.id}`;
-    const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    const updates: Partial<Inspection> = { updatedAt: new Date().toISOString() };
 
     if (activeStep === 'Prep') {
       updates.prepHours = data.hours;
@@ -418,11 +424,23 @@ export default function OperationProfile() {
     }
 
     try {
-      await updateDoc(doc(db, inspPath), updates);
+      // Use raw Firestore for inspection updates since we don't have inspection hook
+      await setDoc(
+        doc(db, `users/${user.uid}/inspections/${currentInspection.id}`),
+        updates,
+        { merge: true }
+      );
       await logActivity('step_complete', `${activeStep} step completed (${data.hours} hours)`);
       setActiveStep(null);
+
+      // Refresh inspections
+      const allInspections = await findAllInspections();
+      const opInspections = allInspections
+        .filter((i) => i.operationId === id)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setInspections(opInspections);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, inspPath);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/inspections/${currentInspection.id}`);
       Swal.fire({ text: 'Failed to update inspection step.', icon: 'error' });
     }
   };
@@ -443,29 +461,27 @@ export default function OperationProfile() {
 
   // Auto-calculate mileage for current inspection
   useEffect(() => {
-    if (!user || !currentInspection || !operation || isLocalUser || !db) return;
+    if (!user || !currentInspection || !operation || !db) return;
     if (currentInspection.calculatedMileage > 0) return;
     if (!operation.cachedDistanceMiles) return;
 
-    const inspPath = `users/${user.uid}/inspections/${currentInspection.id}`;
-    updateDoc(doc(db, inspPath), {
-      calculatedMileage: operation.cachedDistanceMiles,
-      calculatedDriveTime: operation.cachedDriveTimeMinutes || 0,
-    }).catch((err) => {
+    setDoc(
+      doc(db, `users/${user.uid}/inspections/${currentInspection.id}`),
+      {
+        calculatedMileage: operation.cachedDistanceMiles,
+        calculatedDriveTime: operation.cachedDriveTimeMinutes || 0,
+      },
+      { merge: true }
+    ).catch((err) => {
       logger.error('Failed to set inspection mileage:', err);
       Swal.fire({ text: 'Failed to update inspection mileage.', icon: 'error' });
     });
-  }, [user, currentInspection, operation, isLocalUser]);
+  }, [user, currentInspection, operation]);
 
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user || !id || !operation) return;
-
-    if (isLocalUser || !db) {
-      Swal.fire({ text: 'Cannot upload files in offline mode.', icon: 'warning' });
-      return;
-    }
 
     if (!googleAccessToken) {
       Swal.fire({ text: 'Please sign in with Google to upload files to Drive.', icon: 'info' });
@@ -473,7 +489,6 @@ export default function OperationProfile() {
     }
 
     setUploadingDoc(true);
-    const docsPath = `users/${user.uid}/operations/${id}/documents`;
 
     try {
       const year = new Date().getFullYear().toString();
@@ -491,18 +506,25 @@ export default function OperationProfile() {
         logger.error('Failed to mirror file locally:', localError);
       }
 
-      const newDocRef = doc(collection(db, docsPath));
-      await setDoc(newDocRef, {
+      await saveDocument({
+        id: crypto.randomUUID(),
+        operationId: id,
         name: file.name,
         size: file.size,
         type: file.type,
         uploadedAt: new Date().toISOString(),
         url: driveUpload.webViewLink,
+        updatedAt: new Date().toISOString(),
+        syncStatus: 'pending',
       });
+
+      // Refresh documents
+      const docs = await findAllDocuments({ operationId: id });
+      setDocuments(docs.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()));
 
       await logActivity('document_upload', `${file.name} uploaded`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, docsPath);
+      handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/operations/${id}/documents`);
       Swal.fire({ text: 'Failed to upload document.', icon: 'error' });
     } finally {
       setUploadingDoc(false);
@@ -591,9 +613,7 @@ export default function OperationProfile() {
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-stone-500">
-              {operation.contactName && (
-                <span>{operation.contactName}</span>
-              )}
+              {operation.contactName && <span>{operation.contactName}</span>}
               {operation.phone && (
                 <span className="flex items-center gap-1">
                   <Phone size={14} /> {operation.phone}

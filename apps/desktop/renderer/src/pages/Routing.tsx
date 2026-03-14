@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { configStore } from '@dios/shared';
-import { db } from '@dios/shared/firebase';
-import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
 import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer } from '@react-google-maps/api';
@@ -10,6 +9,7 @@ import { Map, MapPin, Truck, Save, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { geocodeMissingOperations } from '../utils/geocodingUtils';
 import Swal from 'sweetalert2';
+import type { Operation, Inspection } from '@dios/shared';
 
 const containerStyle = {
   width: '100%',
@@ -21,23 +21,12 @@ const defaultCenter = {
   lng: -98.5795
 };
 
-interface Operation {
-  id: string;
-  name: string;
-  address: string;
-  contactName: string;
-  phone: string;
-  email: string;
-  agencyId: string;
-  status: 'active' | 'inactive';
-  notes: string;
-  lat?: number;
-  lng?: number;
-}
-
 export default function Routing() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { findAll: findAllOperations, save: saveOperation } = useDatabase<Operation>({ table: 'operations' });
+  const { save: saveInspection } = useDatabase<Inspection>({ table: 'inspections' });
+  
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [operations, setOperations] = useState<Operation[]>([]);
   const [geocoding, setGeocoding] = useState(false);
@@ -99,11 +88,7 @@ export default function Routing() {
 
     const fetchOperations = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, `users/${user.uid}/operations`));
-        const opsData: Operation[] = [];
-        querySnapshot.forEach((doc) => {
-          opsData.push({ id: doc.id, ...doc.data() } as Operation);
-        });
+        const opsData = await findAllOperations();
         setOperations(opsData);
       } catch (error) {
         handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/operations`);
@@ -111,7 +96,7 @@ export default function Routing() {
     };
 
     fetchOperations();
-  }, [user]);
+  }, [user, findAllOperations]);
 
   // Geocode operations missing lat/lng — runs in the background via the shared utility
   useEffect(() => {
@@ -170,9 +155,11 @@ export default function Routing() {
 
       const selectedOps = operations.filter(op => selectedOpIds.has(op.id));
 
-      for (const op of selectedOps) {
-        const newDocRef = doc(collection(db, `users/${user.uid}/inspections`));
-        await setDoc(newDocRef, {
+      // Create inspections for selected operations using useDatabase save
+      await Promise.all(selectedOps.map(async (op) => {
+        const newId = crypto.randomUUID();
+        const inspection: Inspection = {
+          id: newId,
           operationId: op.id,
           date: tripDate,
           status: 'Scheduled',
@@ -180,14 +167,24 @@ export default function Routing() {
           bundleId: bundleId,
           totalTripDriveTime: totalHours,
           totalTripStops: stops,
-          milesDriven: Math.round(distributedMiles), // Or keep as float if preferred
+          milesDriven: Math.round(distributedMiles),
+          calculatedMileage: Math.round(distributedMiles),
+          calculatedDriveTime: 0,
           baseHoursLog: 0,
           additionalHoursLog: 0,
           mealsAndExpenses: 0,
           perDiemDays: 0,
-          customLineItemAmount: 0
-        });
-      }
+          customLineItemAmount: 0,
+          prepHours: 0,
+          onsiteHours: 0,
+          reportHours: 0,
+          prepChecklistData: '[]',
+          reportChecklistData: '[]',
+          updatedAt: new Date().toISOString(),
+          syncStatus: 'pending',
+        };
+        await saveInspection(inspection);
+      }));
 
       Swal.fire({ text: "Bundle saved successfully! Linked inspections created.", icon: 'success' });
       navigate('/schedule');

@@ -1,15 +1,30 @@
 import { app, BrowserWindow, ipcMain, net } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import fs from 'fs'
 import { findAll, findById, upsert, remove, closeDatabase } from './database'
 import { saveFile, readFile, deleteFile, listFiles, getBaseDir } from './fileStorage'
 import { startSync, stopSync, getSyncState, getPendingCount } from './syncEngine'
 import { logger } from '@dios/shared'
+import { loadSyncConfig, saveSyncConfig, deleteSyncConfig } from './configStore'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
+
+// Stored sync config loaded from persistent storage
+let storedSyncConfig: { firestoreToken: string; driveToken: string; userId: string; projectId: string } | null = null
+
+// Load config on startup
+async function initializeStoredConfig(): Promise<void> {
+  try {
+    storedSyncConfig = await loadSyncConfig()
+  } catch (error) {
+    logger.error('Failed to initialize stored config:', error)
+    storedSyncConfig = null
+  }
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -31,7 +46,33 @@ function createWindow(): void {
     mainWindow.webContents.openDevTools()
   } else {
     // In production, load the built index.html
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    // Try multiple paths for different build scenarios
+    const possiblePaths = [
+      path.join(__dirname, '../dist/index.html'),       // Current: dist-electron/dist/index.html
+      path.join(__dirname, '../../dist/index.html'),    // One level up from dist-electron/main/
+      path.join(__dirname, '../../../dist/index.html'), // Two levels up
+      path.join(app.getAppPath(), 'dist/index.html'),   // App root
+    ]
+
+    let loaded = false
+    for (const htmlPath of possiblePaths) {
+      try {
+        if (fs.existsSync(htmlPath)) {
+          mainWindow.loadFile(htmlPath)
+          loaded = true
+          break
+        }
+      } catch {
+        // Continue to next path
+      }
+    }
+
+    if (!loaded) {
+      console.error('Could not find index.html in any expected location')
+      console.error('Tried:', possiblePaths)
+      console.error('__dirname:', __dirname)
+      console.error('App path:', app.getAppPath())
+    }
   }
 
   mainWindow.on('closed', () => {
@@ -127,12 +168,41 @@ ipcMain.handle('fs:getBaseDir', () => getBaseDir())
 
 // Sync IPC handlers
 ipcMain.handle('sync:start', async (_event, config) => {
+  // Use passed config or fall back to stored config from renderer
+  const syncConfig = config ?? storedSyncConfig
+  if (!syncConfig) {
+    throw new Error('No sync config available. Call setSyncConfig first.')
+  }
+  await startSync(syncConfig)
+  return { success: true }
+})
+
+// Config bridge IPC handlers (renderer -> main)
+ipcMain.handle('config:setSyncConfig', async (_event, config) => {
   try {
-    await startSync(config)
+    storedSyncConfig = config
+    await saveSyncConfig(config)
+    logger.info('Sync config stored for user:', config.userId)
     return { success: true }
   } catch (error) {
-    logger.error('Sync failed:', error)
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
+    logger.error('Failed to store sync config:', error)
+    throw new Error(`Failed to store sync config: ${error instanceof Error ? error.message : String(error)}`)
+  }
+})
+
+ipcMain.handle('config:getSyncConfig', () => {
+  return storedSyncConfig
+})
+
+ipcMain.handle('config:clearSyncConfig', async () => {
+  try {
+    storedSyncConfig = null
+    await deleteSyncConfig()
+    logger.info('Sync config cleared')
+    return { success: true }
+  } catch (error) {
+    logger.error('Failed to clear sync config:', error)
+    throw new Error(`Failed to clear sync config: ${error instanceof Error ? error.message : String(error)}`)
   }
 })
 ipcMain.handle('sync:stop', () => {
@@ -146,7 +216,11 @@ app.on('before-quit', () => {
   closeDatabase()
 })
 
-app.whenReady().then(createWindow)
+// Initialize config before creating window
+app.whenReady().then(async () => {
+  await initializeStoredConfig()
+  createWindow()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

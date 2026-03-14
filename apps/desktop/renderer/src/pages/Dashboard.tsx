@@ -2,13 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { ArrowRight, Calendar, CloudUpload, Edit3, Check, Loader2, X, FileText, Image, File } from 'lucide-react';
 import { format } from 'date-fns';
 import TasksWidget from '../components/TasksWidget';
-import ProcessUploadModal, { UnassignedUpload } from '../components/ProcessUploadModal';
+import ProcessUploadModal from '../components/ProcessUploadModal';
+import type { UnassignedUpload } from '@dios/shared/types';
 import { useAuth } from '../contexts/AuthContext';
-import { db, storage } from '@dios/shared/firebase';
-import { collection, query, where, orderBy, limit, getDocs, addDoc, onSnapshot } from 'firebase/firestore';
+import { storage } from '@dios/shared/firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { useNavigate } from 'react-router';
 import { logger } from '@dios/shared';
+import { useDatabase } from '../hooks/useDatabase';
+import type { Inspection, Operation } from '@dios/shared/types';
 
 interface UpcomingInspection {
   id: string;
@@ -18,9 +20,18 @@ interface UpcomingInspection {
   operationName: string;
 }
 
-interface Operation {
+// Extended UI interface for UnassignedUpload with Firestore fields
+interface UnassignedUploadUI extends UnassignedUpload {
+  downloadURL: string;
+  storagePath: string;
+  fileSize: number;
+}
+
+// Local Note interface that matches what we store
+interface Note {
   id: string;
-  name: string;
+  content: string;
+  createdAt: string;
 }
 
 function getFileIcon(fileType: string) {
@@ -41,6 +52,12 @@ export default function Dashboard() {
   const today = new Date();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Database hooks
+  const { findAll: findAllInspections } = useDatabase<Inspection>({ table: 'inspections' });
+  const { findAll: findAllOperations } = useDatabase<Operation>({ table: 'operations' });
+  const { findAll: findAllUploads, save: saveUpload } = useDatabase<UnassignedUploadUI>({ table: 'unassigned_uploads' });
+  const { save: saveNote } = useDatabase<Note>({ table: 'notes' });
+
   const [upcomingInspections, setUpcomingInspections] = useState<UpcomingInspection[]>([]);
   const [loadingInspections, setLoadingInspections] = useState(true);
 
@@ -49,15 +66,15 @@ export default function Dashboard() {
   const [noteSaved, setNoteSaved] = useState(false);
 
   // Uploads state
-  const [unassignedUploads, setUnassignedUploads] = useState<UnassignedUpload[]>([]);
+  const [unassignedUploads, setUnassignedUploads] = useState<UnassignedUploadUI[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [operations, setOperations] = useState<Operation[]>([]);
-  const [selectedUpload, setSelectedUpload] = useState<UnassignedUpload | null>(null);
+  const [operations, setOperations] = useState<{ id: string; name: string }[]>([]);
+  const [selectedUpload, setSelectedUpload] = useState<UnassignedUploadUI | null>(null);
 
   // Fetch upcoming inspections (future dates, ordered ascending)
   useEffect(() => {
-    if (!user || !db) {
+    if (!user) {
       setLoadingInspections(false);
       return;
     }
@@ -67,38 +84,27 @@ export default function Dashboard() {
       try {
         const todayStr = today.toISOString().split('T')[0];
 
-        const inspSnap = await getDocs(
-          query(
-            collection(db, `users/${user.uid}/inspections`),
-            where('date', '>=', todayStr),
-            orderBy('date', 'asc'),
-            limit(5)
-          )
-        );
-
-        const rawInspections = inspSnap.docs.map(d => ({
-          id: d.id,
-          ...(d.data() as { date: string; status: string; operationId: string }),
-          operationName: '',
-        }));
-
-        if (rawInspections.length === 0) {
-          setUpcomingInspections([]);
-          return;
-        }
-
-        const opsSnap = await getDocs(collection(db, `users/${user.uid}/operations`));
+        const inspections = await findAllInspections();
+        const ops = await findAllOperations();
+        
         const opNames: Record<string, string> = {};
-        opsSnap.forEach(d => {
-          opNames[d.id] = (d.data() as { name: string }).name;
+        ops.forEach(op => {
+          opNames[op.id] = op.name;
         });
 
-        setUpcomingInspections(
-          rawInspections.map(i => ({
-            ...i,
+        const upcoming = inspections
+          .filter(i => i.date >= todayStr)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .slice(0, 5)
+          .map(i => ({
+            id: i.id,
+            date: i.date,
+            status: i.status,
+            operationId: i.operationId,
             operationName: opNames[i.operationId] ?? 'Unknown Operation',
-          }))
-        );
+          }));
+
+        setUpcomingInspections(upcoming);
       } catch (error) {
         logger.error('Error fetching upcoming inspections:', error);
       } finally {
@@ -107,41 +113,41 @@ export default function Dashboard() {
     };
 
     fetchUpcoming();
-  }, [user]);
+  }, [user, findAllInspections, findAllOperations]);
 
   // Fetch operations for the processing modal
   useEffect(() => {
-    if (!user || !db) return;
-    const unsub = onSnapshot(
-      collection(db, `users/${user.uid}/operations`),
-      (snap) => {
-        setOperations(snap.docs.map(d => ({ id: d.id, name: (d.data() as { name: string }).name })));
-      }
-    );
-    return () => unsub();
-  }, [user]);
+    if (!user) return;
+    
+    const fetchOperations = async () => {
+      const ops = await findAllOperations();
+      setOperations(ops.map(op => ({ id: op.id, name: op.name })));
+    };
+    
+    fetchOperations();
+  }, [user, findAllOperations]);
 
   // Fetch unassigned uploads (last 6, most recent first)
   useEffect(() => {
-    if (!user || !db) return;
-    const unsub = onSnapshot(
-      query(
-        collection(db, `users/${user.uid}/unassigned_uploads`),
-        orderBy('uploadedAt', 'desc'),
-        limit(6)
-      ),
-      (snap) => {
-        setUnassignedUploads(snap.docs.map(d => ({ id: d.id, ...d.data() } as UnassignedUpload)));
-      }
-    );
-    return () => unsub();
-  }, [user]);
+    if (!user) return;
+    
+    const fetchUploads = async () => {
+      const uploads = await findAllUploads();
+      const sorted = uploads
+        .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
+        .slice(0, 6);
+      setUnassignedUploads(sorted);
+    };
+    
+    fetchUploads();
+  }, [user, findAllUploads]);
 
   const handleSaveNote = async () => {
-    if (!user || !db || !noteText.trim()) return;
+    if (!user || !noteText.trim()) return;
     setSavingNote(true);
     try {
-      await addDoc(collection(db, `users/${user.uid}/notes`), {
+      await saveNote({
+        id: crypto.randomUUID(),
         content: noteText.trim(),
         createdAt: new Date().toISOString(),
       });
@@ -157,7 +163,7 @@ export default function Dashboard() {
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user || !storage || !db) return;
+    if (!file || !user || !storage) return;
     e.target.value = '';
 
     setUploading(true);
@@ -180,14 +186,23 @@ export default function Dashboard() {
           async () => {
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              await addDoc(collection(db, `users/${user.uid}/unassigned_uploads`), {
+              await saveUpload({
+                id: crypto.randomUUID(),
                 fileName: file.name,
                 storagePath,
                 downloadURL,
                 fileType: file.type,
                 fileSize: file.size,
                 uploadedAt: new Date().toISOString(),
+                fileUrl: downloadURL,
+                source: 'desktop' as const,
               });
+              // Refresh uploads list
+              const uploads = await findAllUploads();
+              const sorted = uploads
+                .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
+                .slice(0, 6);
+              setUnassignedUploads(sorted);
               resolve();
             } catch (err) {
               reject(err);
@@ -309,7 +324,7 @@ export default function Dashboard() {
 
         {/* Tasks & Follow-ups (Spans 6 cols) */}
         <div className="col-span-12 lg:col-span-6 min-h-[280px]">
-          <TasksWidget />
+          <TasksWidget inspectionId={undefined} />
         </div>
 
         {/* Uploads (Spans 6 cols) */}

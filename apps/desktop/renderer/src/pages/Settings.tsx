@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useDatabase } from '../hooks/useDatabase';
 import { db } from '@dios/shared/firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { Plus, Shield, FolderSync, Download, Mail, Trash } from 'lucide-react';
 import { configStore, logger } from '@dios/shared';
@@ -62,6 +63,7 @@ const NEW_AGENCY_TEMPLATE: Agency = {
 
 export default function Settings() {
   const { user } = useAuth();
+  const { findAll, save, remove } = useDatabase<Agency>({ table: 'agencies' });
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('business');
@@ -79,6 +81,7 @@ export default function Settings() {
     });
   }, []);
 
+  // Keep raw Firestore for whitelistedEmails (user doc, not agencies)
   useEffect(() => {
     if (!user) return;
     const userDocRef = doc(db, `users/${user.uid}`);
@@ -92,59 +95,51 @@ export default function Settings() {
     return () => unsubscribe();
   }, [user]);
 
+  // Use useDatabase hook for agencies
   useEffect(() => {
     if (!user) return;
-    const path = `users/${user.uid}/agencies`;
-    const unsubscribe = onSnapshot(
-      collection(db, path),
-      (snapshot) => {
-        const agenciesData: Agency[] = [];
-        snapshot.forEach((d) => {
-          agenciesData.push(d.data() as Agency);
-        });
-        setAgencies(agenciesData);
+    setLoading(true);
+    findAll()
+      .then((data) => {
+        setAgencies(data);
         setLoading(false);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, path);
-      }
-    );
-    return () => unsubscribe();
-  }, [user]);
+      })
+      .catch((error) => {
+        handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/agencies`);
+        setLoading(false);
+      });
+  }, [user, findAll]);
 
   const handleSaveAgency = async (agency: Agency) => {
     if (!user) return;
-    const path = `users/${user.uid}/agencies/${agency.id}`;
     try {
-      await setDoc(doc(db, path), agency);
+      await save(agency);
       Swal.fire({ text: 'Agency saved!', icon: 'success', timer: 1500, showConfirmButton: false });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/agencies/${agency.id}`);
     }
   };
 
   const handleCreateAgency = async (agency: Agency) => {
     if (!user) return;
-    const newId = doc(collection(db, `users/${user.uid}/agencies`)).id;
+    const newId = crypto.randomUUID();
     const newAgency = { ...agency, id: newId };
-    const path = `users/${user.uid}/agencies/${newId}`;
     try {
-      await setDoc(doc(db, path), newAgency);
+      await save(newAgency);
       setActiveTab(newId);
       Swal.fire({ text: 'Agency created!', icon: 'success', timer: 1500, showConfirmButton: false });
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+      handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/agencies/${newId}`);
     }
   };
 
   const handleDeleteAgency = async (agencyId: string) => {
     if (!user) return;
-    const path = `users/${user.uid}/agencies/${agencyId}`;
     try {
-      await deleteDoc(doc(db, path));
+      await remove(agencyId);
       setActiveTab('business');
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
+      handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/agencies/${agencyId}`);
     }
   };
 
@@ -158,6 +153,7 @@ export default function Settings() {
     if (!user || !email || whitelistedEmails.includes(email)) return;
     const userDocRef = doc(db, `users/${user.uid}`);
     try {
+      const { setDoc } = await import('firebase/firestore');
       await setDoc(userDocRef, { whitelistedEmails: [...whitelistedEmails, email] }, { merge: true });
       setNewEmailInput('');
     } catch (error) {
@@ -169,6 +165,7 @@ export default function Settings() {
     if (!user) return;
     const userDocRef = doc(db, `users/${user.uid}`);
     try {
+      const { setDoc } = await import('firebase/firestore');
       await setDoc(userDocRef, { whitelistedEmails: whitelistedEmails.filter(e => e !== email) }, { merge: true });
     } catch (error) {
       logger.error('Failed to remove whitelisted email:', error);

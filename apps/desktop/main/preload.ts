@@ -39,7 +39,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Sync engine
   sync: {
-    start: (config: { firestoreToken: string; driveToken: string; userId: string; projectId: string }): Promise<{ success: boolean }> =>
+    start: (config?: { firestoreToken: string; driveToken: string; userId: string; projectId: string }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('sync:start', config),
     stop: (): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('sync:stop'),
@@ -47,5 +47,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sync:state'),
     getPendingCount: (): Promise<number> =>
       ipcRenderer.invoke('sync:pendingCount'),
+  },
+
+  // Config bridge (renderer -> main)
+  config: {
+    setSyncConfig: (config: { firestoreToken: string; driveToken: string; userId: string; projectId: string }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('config:setSyncConfig', config),
+    getSyncConfig: (): Promise<{ firestoreToken: string; driveToken: string; userId: string; projectId: string } | null> =>
+      ipcRenderer.invoke('config:getSyncConfig'),
+    clearSyncConfig: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('config:clearSyncConfig'),
   },
 })

@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { StickyNote, CheckSquare, Activity } from 'lucide-react';
+import type { Note, Task, OperationActivity } from '@dios/shared/types';
 
 interface UnifiedActivityFeedProps {
   operationId: string;
@@ -38,6 +38,9 @@ const ICON_CONFIG = {
 
 export default function UnifiedActivityFeed({ operationId, refreshTrigger }: UnifiedActivityFeedProps) {
   const { user } = useAuth();
+  const { findAll: findAllNotes } = useDatabase<Note>({ table: 'notes' });
+  const { findAll: findAllTasks } = useDatabase<Task>({ table: 'tasks' });
+  const { findAll: findAllActivities } = useDatabase<OperationActivity>({ table: 'activities', parentPath: operationId ? `operations/${operationId}` : undefined });
   const [notes, setNotes] = useState<FeedEntry[]>([]);
   const [tasks, setTasks] = useState<FeedEntry[]>([]);
   const [activities, setActivities] = useState<FeedEntry[]>([]);
@@ -52,64 +55,37 @@ export default function UnifiedActivityFeed({ operationId, refreshTrigger }: Uni
       if (loadedCount >= 3) setLoading(false);
     };
 
-    const notesQ = query(
-      collection(db, `users/${user.uid}/notes`),
-      where('operationId', '==', operationId)
-    );
-    const unsubNotes = onSnapshot(notesQ, (snap) => {
-      setNotes(snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          type: 'note' as const,
-          content: data.content || '',
-          timestamp: data.createdAt || data.updatedAt || '',
-        };
-      }));
+    findAllNotes({ operationId }).then((notesData) => {
+      setNotes(notesData.map((d) => ({
+        id: d.id,
+        type: 'note' as const,
+        content: d.content || '',
+        timestamp: d.createdAt || d.updatedAt || '',
+      })));
       markLoaded();
     });
 
-    const tasksQ = query(
-      collection(db, `users/${user.uid}/tasks`),
-      where('operationId', '==', operationId)
-    );
-    const unsubTasks = onSnapshot(tasksQ, (snap) => {
-      setTasks(snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          type: 'task' as const,
-          content: data.title || '',
-          timestamp: data.createdAt || data.updatedAt || '',
-          status: data.status,
-        };
-      }));
+    findAllTasks({ operationId }).then((tasksData) => {
+      setTasks(tasksData.map((d) => ({
+        id: d.id,
+        type: 'task' as const,
+        content: d.title || '',
+        timestamp: d.createdAt || d.updatedAt || '',
+        status: d.status,
+      })));
       markLoaded();
     });
 
-    const activitiesQ = query(
-      collection(db, `users/${user.uid}/operation_activities`),
-      where('operationId', '==', operationId)
-    );
-    const unsubActivities = onSnapshot(activitiesQ, (snap) => {
-      setActivities(snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          type: 'activity' as const,
-          content: data.description || '',
-          timestamp: data.timestamp || data.updatedAt || '',
-        };
-      }));
+    findAllActivities({ operationId }).then((activitiesData) => {
+      setActivities(activitiesData.map((d) => ({
+        id: d.id,
+        type: 'activity' as const,
+        content: d.description || '',
+        timestamp: d.timestamp || d.updatedAt || '',
+      })));
       markLoaded();
     });
-
-    return () => {
-      unsubNotes();
-      unsubTasks();
-      unsubActivities();
-    };
-  }, [user, operationId, refreshTrigger]);
+  }, [user, operationId, refreshTrigger, findAllNotes, findAllTasks, findAllActivities]);
 
   const entries = useMemo(() => {
     return [...notes, ...tasks, ...activities].sort(

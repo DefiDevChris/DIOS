@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '@dios/shared/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { geocodeAddress } from '../utils/geocodingUtils';
+// Note: system_settings/config is a special document path, keeping raw Firestore for this
 import { logger } from '@dios/shared';
 import { Save } from 'lucide-react';
 import Swal from 'sweetalert2';

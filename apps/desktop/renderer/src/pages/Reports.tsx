@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import { collection, query, getDocs, where } from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { FileText, Download, Calendar, TrendingUp, DollarSign, Clock } from 'lucide-react';
 import { generateTaxReportPdf, TaxReportData } from '../lib/pdfGenerator';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
@@ -17,6 +16,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import type { Invoice, Expense, Inspection } from '@dios/shared';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -44,6 +44,10 @@ function EmptyChartState({ label }: { label: string }) {
 
 export default function Reports() {
   const { user } = useAuth();
+  const { findAll: findAllInvoices } = useDatabase<Invoice>({ table: 'invoices' });
+  const { findAll: findAllExpenses } = useDatabase<Expense>({ table: 'expenses' });
+  const { findAll: findAllInspections } = useDatabase<Inspection>({ table: 'inspections' });
+  
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [generating, setGenerating] = useState(false);
 
@@ -52,7 +56,7 @@ export default function Reports() {
   const [chartsLoading, setChartsLoading] = useState(true);
 
   const currentYear = new Date().getFullYear();
-  const availableYears = Array.from({ length: 5 }, (_, i) => 2026 + i).filter((y) => y <= currentYear + 1);
+  const availableYears = Array.from({ length: 5 }, (_, i) => currentYear + i).filter((y) => y <= currentYear + 1);
 
   const [totalMiles, setTotalMiles] = useState(0);
   const [irsMileageRate, setIrsMileageRate] = useState(0.70);
@@ -74,36 +78,27 @@ export default function Reports() {
         const hoursBilledByMonth = new Array(12).fill(0);
 
         // Invoices — cash basis: use paidDate for revenue attribution
-        const invDocs = await getDocs(
-          query(
-            collection(db, `users/${user.uid}/invoices`),
-            where('status', '==', 'Paid')
-          )
-        );
-        invDocs.forEach(d => {
-          const data = d.data();
-          const paidDate = data.paidDate || data.date;
+        const invoicesData = await findAllInvoices();
+        invoicesData.forEach(inv => {
+          if (inv.status !== 'Paid') return;
+          const paidDate = inv.paidDate || inv.date;
           if (!paidDate) return;
           const paidDateObj = new Date(paidDate);
           if (paidDateObj.getFullYear() !== selectedYear) return;
           const month = paidDateObj.getMonth();
-          revenueByMonth[month] += data.totalAmount || 0;
-          hoursBilledByMonth[month] += data.hoursLogged || 0;
+          revenueByMonth[month] += inv.totalAmount || 0;
+          hoursBilledByMonth[month] += (inv as any).hoursLogged || 0;
         });
 
         // Expenses
         try {
-          const expDocs = await getDocs(
-            query(
-              collection(db, `users/${user.uid}/expenses`),
-              where('date', '>=', startOfYear),
-              where('date', '<', endOfYear)
-            )
-          );
-          expDocs.forEach(d => {
-            const data = d.data();
-            const month = new Date(data.date).getMonth();
-            expensesByMonth[month] += data.amount || 0;
+          const expensesData = await findAllExpenses();
+          expensesData.forEach(exp => {
+            if (!exp.date) return;
+            const expDate = new Date(exp.date);
+            if (expDate.getFullYear() !== selectedYear) return;
+            const month = expDate.getMonth();
+            expensesByMonth[month] += exp.amount || 0;
           });
         } catch {
           // expenses collection may not exist yet
@@ -112,19 +107,16 @@ export default function Reports() {
         // Hours logged + mileage from inspections
         let yearMiles = 0;
         try {
-          const inspDocs = await getDocs(
-            collection(db, `users/${user.uid}/inspections`)
-          );
-          inspDocs.forEach(d => {
-            const data = d.data();
-            if (!data.date) return;
-            const inspYear = new Date(data.date).getFullYear();
+          const inspectionsData = await findAllInspections();
+          inspectionsData.forEach(insp => {
+            if (!insp.date) return;
+            const inspYear = new Date(insp.date).getFullYear();
             if (inspYear !== selectedYear) return;
-            const month = new Date(data.date).getMonth();
-            const logged = (data.prepHours || 0) + (data.onsiteHours || 0) + (data.reportHours || 0)
-              || ((data.baseHoursLog || 0) + (data.additionalHoursLog || 0));
+            const month = new Date(insp.date).getMonth();
+            const logged = (insp.prepHours || 0) + (insp.onsiteHours || 0) + (insp.reportHours || 0)
+              || ((insp.baseHoursLog || 0) + (insp.additionalHoursLog || 0));
             hoursLoggedByMonth[month] += logged;
-            yearMiles += data.calculatedMileage || 0;
+            yearMiles += insp.calculatedMileage || 0;
           });
         } catch {
           // inspections may not exist
@@ -132,7 +124,10 @@ export default function Reports() {
         setTotalMiles(yearMiles);
 
         // Load IRS mileage rate from system settings
+        // Keep raw Firestore for system_settings since it's special
         try {
+          const { db } = await import('@dios/shared/firebase');
+          const { collection, getDocs } = await import('firebase/firestore');
           const settingsDocs = await getDocs(collection(db, `users/${user.uid}/system_settings`));
           const configDoc = settingsDocs.docs.find((d) => d.id === 'config');
           if (configDoc) {
@@ -165,7 +160,7 @@ export default function Reports() {
     };
 
     fetchChartData();
-  }, [user, selectedYear]);
+  }, [user, selectedYear, findAllInvoices, findAllExpenses, findAllInspections]);
 
   const hasRevenueData = monthlyData.some(r => r.Revenue > 0 || r.Expenses > 0);
   const hasHoursData = hoursData.some(r => r['Hours Logged'] > 0 || r['Hours Billed'] > 0);
@@ -180,32 +175,26 @@ export default function Reports() {
       const endOfYear = new Date(selectedYear + 1, 0, 1).toISOString();
 
       // Cash-basis: filter by paidDate year
-      const invoicesRef = collection(db, `users/${user.uid}/invoices`);
-      const qInvoices = query(invoicesRef, where('status', '==', 'Paid'));
-      const invoiceDocs = await getDocs(qInvoices);
+      const invoicesData = await findAllInvoices();
       let totalIncome = 0;
-      invoiceDocs.forEach(d => {
-        const data = d.data();
-        const paidDate = data.paidDate || data.date;
+      invoicesData.forEach(inv => {
+        if (inv.status !== 'Paid') return;
+        const paidDate = inv.paidDate || inv.date;
         if (!paidDate) return;
         if (new Date(paidDate).getFullYear() !== selectedYear) return;
-        totalIncome += data.totalAmount || 0;
+        totalIncome += inv.totalAmount || 0;
       });
 
       let totalExpenses = 0;
       const expensesByCategory: Record<string, number> = {};
       try {
-        const expensesRef = collection(db, `users/${user.uid}/expenses`);
-        const qExpenses = query(
-          expensesRef,
-          where('date', '>=', startOfYear),
-          where('date', '<', endOfYear)
-        );
-        const expenseDocs = await getDocs(qExpenses);
-        expenseDocs.forEach(doc => {
-          const data = doc.data();
-          const category = data.category || 'Uncategorized';
-          const amount = data.amount || 0;
+        const expensesData = await findAllExpenses();
+        expensesData.forEach(exp => {
+          if (!exp.date) return;
+          const expDate = new Date(exp.date);
+          if (expDate < new Date(startOfYear) || expDate >= new Date(endOfYear)) return;
+          const category = exp.category || 'Uncategorized';
+          const amount = exp.amount || 0;
           expensesByCategory[category] = (expensesByCategory[category] || 0) + amount;
           totalExpenses += amount;
         });
@@ -213,7 +202,7 @@ export default function Reports() {
         logger.warn('Expenses collection may not exist yet.');
       }
 
-      const reportData: TaxReportData = {
+      const reportData = {
         year: selectedYear,
         totalIncome,
         expensesByCategory,
@@ -221,7 +210,7 @@ export default function Reports() {
         totalMiles,
         irsMileageRate,
         mileageDeduction: totalMiles * irsMileageRate,
-      };
+      } as TaxReportData;
       const pdfBlob = generateTaxReportPdf(reportData);
       const fileName = `Schedule_C_Export_${selectedYear}.pdf`;
 

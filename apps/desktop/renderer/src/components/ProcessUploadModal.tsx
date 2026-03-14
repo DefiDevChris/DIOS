@@ -5,23 +5,21 @@ import {
   X, ScanLine, ChevronDown, CheckCircle, Upload, Loader2, Check,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import {
-  collection, addDoc, serverTimestamp, doc, deleteDoc,
-} from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 import { parseOcrText } from './ReceiptScanner';
 import Swal from 'sweetalert2';
+import type { Expense, UnassignedUpload } from '@dios/shared/types';
 
-export interface UnassignedUpload {
-  id: string;
-  fileName: string;
-  storagePath: string;
+// Re-export the shared type for backward compatibility
+export type { UnassignedUpload };
+
+// Local interface extending the shared type with additional UI-specific fields
+interface UnassignedUploadUI extends UnassignedUpload {
   downloadURL: string;
-  fileType: string;
+  storagePath: string;
   fileSize: number;
-  uploadedAt: string;
 }
 
 interface Operation {
@@ -30,7 +28,7 @@ interface Operation {
 }
 
 interface ProcessUploadModalProps {
-  upload: UnassignedUpload;
+  upload: UnassignedUploadUI;
   operations: Operation[];
   onClose: () => void;
   onProcessed: () => void;
@@ -45,6 +43,8 @@ export default function ProcessUploadModal({
   onProcessed,
 }: ProcessUploadModalProps) {
   const { user } = useAuth();
+  const { save: saveExpense } = useDatabase<Expense>({ table: 'expenses' });
+  const { remove: removeUpload } = useDatabase<UnassignedUpload>({ table: 'unassigned_uploads' });
   const { triggerSync } = useBackgroundSync();
 
   const [phase, setPhase] = useState<Phase>('assign');
@@ -114,7 +114,7 @@ export default function ProcessUploadModal({
           folderName,
         });
 
-        await deleteDoc(doc(db, `users/${user.uid}/unassigned_uploads`, upload.id));
+        await removeUpload(upload.id);
 
         triggerSync();
         setPhase('success');
@@ -136,14 +136,17 @@ export default function ProcessUploadModal({
       const response = await fetch(upload.downloadURL);
       const blob = await response.blob();
 
-      const expenseRef = await addDoc(collection(db, 'users', user.uid, 'expenses'), {
+      const expenseId = crypto.randomUUID();
+      await saveExpense({
+        id: expenseId,
         vendor,
         amount: parseFloat(amount) || 0,
         date,
         notes,
-        receiptFileName: upload.fileName,
-        receiptFileId: null,
-        createdAt: serverTimestamp(),
+        receiptFileId: undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        syncStatus: 'pending',
       });
 
       const year = new Date(date).getFullYear();
@@ -152,11 +155,11 @@ export default function ProcessUploadModal({
         year,
         uid: user.uid,
         folderName: 'Receipts',
-        firestoreDocPath: `users/${user.uid}/expenses/${expenseRef.id}`,
+        firestoreDocPath: `users/${user.uid}/expenses/${expenseId}`,
         firestoreField: 'receiptFileId',
       });
 
-      await deleteDoc(doc(db, `users/${user.uid}/unassigned_uploads`, upload.id));
+      await removeUpload(upload.id);
 
       triggerSync();
       setPhase('success');

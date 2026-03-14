@@ -1,14 +1,23 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useDatabase } from '../hooks/useDatabase';
 import { Camera, RefreshCw, Upload, X, CheckCircle } from 'lucide-react';
 import { logger } from '@dios/shared';
-import { db, storage } from '@dios/shared/firebase';
+import { storage } from '@dios/shared/firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
+import type { UnassignedUpload } from '@dios/shared/types';
+
+// Extended interface for UI with Firestore fields (matches Dashboard.tsx pattern)
+interface UnassignedUploadUI extends UnassignedUpload {
+  downloadURL: string;
+  storagePath: string;
+  fileSize: number;
+}
 
 export default function MobileHub() {
   const { user } = useAuth();
+  const { save: saveUpload } = useDatabase<UnassignedUploadUI>({ table: 'unassigned_uploads' });
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -50,7 +59,7 @@ export default function MobileHub() {
   };
 
   const handleUpload = async () => {
-    if (!imageFile || !user || !storage || !db) return;
+    if (!imageFile || !user || !storage) return;
     setUploading(true);
     setUploadProgress(0);
 
@@ -71,13 +80,16 @@ export default function MobileHub() {
           async () => {
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              await addDoc(collection(db, `users/${user.uid}/unassigned_uploads`), {
+              await saveUpload({
+                id: crypto.randomUUID(),
                 fileName,
                 storagePath,
                 downloadURL,
                 fileType: imageFile.type || 'image/jpeg',
                 fileSize: imageFile.size,
                 uploadedAt: new Date().toISOString(),
+                fileUrl: downloadURL, // Map to base type field
+                source: 'desktop',    // Required by base type
               });
               resolve();
             } catch (err) {

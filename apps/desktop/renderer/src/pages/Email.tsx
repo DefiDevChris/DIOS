@@ -1,12 +1,26 @@
 import { useState, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import { useAuth } from '../contexts/AuthContext';
+import { useDatabase } from '../hooks/useDatabase';
 import { db } from '@dios/shared/firebase';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { googleApiJson, googleApiFetch, logger } from '@dios/shared';
 import { Mail, Search, MessageSquare, Plus, X, Loader2, Send, Paperclip, Download } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import Swal from 'sweetalert2';
+
+// Type definitions for useDatabase
+interface Operation {
+  id: string;
+  email?: string;
+  name: string;
+}
+
+interface Agency {
+  id: string;
+  email?: string;
+  name: string;
+}
 
 interface EmailThread {
   id: string;
@@ -32,6 +46,8 @@ interface EmailMessage {
 
 export default function Email() {
   const { user, googleAccessToken } = useAuth();
+  const { findAll: findAllOperations } = useDatabase<Operation>({ table: 'operations' });
+  const { findAll: findAllAgencies } = useDatabase<Agency>({ table: 'agencies' });
   const [loading, setLoading] = useState(true);
   const [threads, setThreads] = useState<EmailThread[]>([]);
   const [selectedThread, setSelectedThread] = useState<EmailThread | null>(null);
@@ -58,22 +74,20 @@ export default function Email() {
       try {
         setLoading(true);
 
-        // 1. Fetch ALL operations emails (no status filter)
-        const opsSnapshot = await getDocs(collection(db, `users/${user.uid}/operations`));
+        // 1. Fetch ALL operations emails (no status filter) using useDatabase
+        const operations = await findAllOperations();
         const emailSet = new Set<string>();
-        opsSnapshot.forEach((d) => {
-          const data = d.data();
-          if (data.email) emailSet.add(data.email.trim().toLowerCase());
+        operations.forEach((op) => {
+          if (op.email) emailSet.add(op.email.trim().toLowerCase());
         });
 
-        // 2. Fetch all agency emails (if present)
-        const agenciesSnapshot = await getDocs(collection(db, `users/${user.uid}/agencies`));
-        agenciesSnapshot.forEach((d) => {
-          const data = d.data();
-          if (data.email) emailSet.add(data.email.trim().toLowerCase());
+        // 2. Fetch all agency emails (if present) using useDatabase
+        const agencies = await findAllAgencies();
+        agencies.forEach((agency) => {
+          if (agency.email) emailSet.add(agency.email.trim().toLowerCase());
         });
 
-        // 3. Fetch custom whitelisted emails from user document
+        // 3. Fetch custom whitelisted emails from user document (keep Firestore for user doc)
         const userDocSnap = await getDoc(doc(db, `users/${user.uid}`));
         if (userDocSnap.exists()) {
           const whitelisted: string[] = userDocSnap.data().whitelistedEmails || [];
@@ -150,7 +164,7 @@ export default function Email() {
     };
 
     fetchEmails();
-  }, [user, googleAccessToken]);
+  }, [user, googleAccessToken, findAllOperations, findAllAgencies]);
 
   const fileToBase64 = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {

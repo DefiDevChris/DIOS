@@ -32,10 +32,15 @@ declare global {
         getBaseDir: () => Promise<string>
       }
       sync?: {
-        start: (config: { firestoreToken: string; driveToken: string; userId: string; projectId: string }) => Promise<{ success: boolean }>
+        start: (config?: { firestoreToken: string; driveToken: string; userId: string; projectId: string }) => Promise<{ success: boolean }>
         stop: () => Promise<{ success: boolean }>
         getState: () => Promise<string>
         getPendingCount: () => Promise<number>
+      }
+      config?: {
+        setSyncConfig: (config: { firestoreToken: string; driveToken: string; userId: string; projectId: string }) => Promise<{ success: boolean }>
+        getSyncConfig: () => Promise<{ firestoreToken: string; driveToken: string; userId: string; projectId: string } | null>
+        clearSyncConfig: () => Promise<{ success: boolean }>
       }
     }
   }
@@ -265,12 +270,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const token = credential?.accessToken;
+      const user = result.user;
 
       if (token) {
         storeToken(token);
         // Initialise GIS token client now that we have the user's hint for silent refreshes
         const clientId = configStore.getConfig()?.googleOAuthClientId;
         if (clientId) initTokenClient(clientId);
+
+        // Push config to Electron main process for sync engine
+        if (isElectron() && window.electronAPI?.config) {
+          try {
+            const firestoreToken = await user.getIdToken();
+            const projectId = configStore.getConfig()?.firebaseConfig?.projectId;
+            if (projectId) {
+              await window.electronAPI.config.setSyncConfig({
+                firestoreToken,
+                driveToken: token,
+                userId: user.uid,
+                projectId,
+              });
+              logger.info('Sync config pushed to main process for user:', user.uid);
+            }
+          } catch (error) {
+            logger.error('Failed to set sync config:', error);
+          }
+        }
       }
     } catch (error) {
       logger.error("Error signing in with Google", error);
@@ -285,6 +310,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
       localStorage.removeItem(TOKEN_EXPIRY_KEY);
       setGoogleAccessToken(null);
+      // Clear sync config in Electron main process
+      if (isElectron() && window.electronAPI?.config) {
+        try {
+          await window.electronAPI.config.clearSyncConfig();
+        } catch (error) {
+          logger.error('Failed to clear sync config:', error);
+        }
+      }
     } catch (error) {
       logger.error("Error signing out", error);
       throw error;

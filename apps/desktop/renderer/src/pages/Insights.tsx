@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { logger } from '@dios/shared';
 import { BarChart3, TrendingUp, FileText, Building2, Receipt, CheckCircle } from 'lucide-react';
 import {
@@ -22,13 +21,37 @@ const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 
 const PIE_COLORS = ['#34d399', '#60a5fa', '#fbbf24', '#d6d3d1'];
 
+// Type imports for useDatabase
+interface Operation {
+  id: string;
+  status?: string;
+  name: string;
+}
+
+interface Inspection {
+  id: string;
+  status?: string;
+  date?: string;
+  operationId: string;
+}
+
+interface Invoice {
+  id: string;
+  status?: string;
+  date?: string;
+  totalAmount?: number;
+}
+
 interface Stats {
   totalOperations: number;
   activeOperations: number;
   totalInspections: number;
   scheduledInspections: number;
-  completedInspections: number;
-  inProgressInspections: number;
+  prepInspections: number;
+  inspectedInspections: number;
+  reportInspections: number;
+  invoicedInspections: number;
+  paidInspections: number;
   totalInvoices: number;
   paidInvoices: number;
   unpaidInvoices: number;
@@ -60,6 +83,11 @@ export default function Insights() {
 
   const availableYears = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
 
+  // Database hooks
+  const { findAll: findAllOperations } = useDatabase<Operation>({ table: 'operations' });
+  const { findAll: findAllInspections } = useDatabase<Inspection>({ table: 'inspections' });
+  const { findAll: findAllInvoices } = useDatabase<Invoice>({ table: 'invoices' });
+
   useEffect(() => {
     if (!user) return;
 
@@ -70,26 +98,27 @@ export default function Insights() {
         const endOfYear = new Date(selectedYear + 1, 0, 1).toISOString();
 
         // Operations
-        const opsDocs = await getDocs(collection(db, `users/${user.uid}/operations`));
-        const totalOperations = opsDocs.size;
-        const activeOperations = opsDocs.docs.filter(d => d.data().status === 'active').length;
+        const operations = await findAllOperations();
+        const totalOperations = operations.length;
+        const activeOperations = operations.filter(op => op.status === 'active').length;
 
         // Inspections
-        const inspDocs = await getDocs(collection(db, `users/${user.uid}/inspections`));
-        const allInspections = inspDocs.docs.map(d => d.data());
-        const totalInspections = allInspections.length;
-        const scheduledInspections = allInspections.filter(i => i.status === 'Scheduled').length;
-        const completedInspections = allInspections.filter(i => i.status === 'Completed').length;
-        const inProgressInspections = allInspections.filter(i => i.status === 'In Progress').length;
+        const inspections = await findAllInspections();
+        const totalInspections = inspections.length;
+        const scheduledInspections = inspections.filter(i => i.status === 'Scheduled').length;
+        const prepInspections = inspections.filter(i => i.status === 'Prep').length;
+        const inspectedInspections = inspections.filter(i => i.status === 'Inspected').length;
+        const reportInspections = inspections.filter(i => i.status === 'Report').length;
+        const invoicedInspections = inspections.filter(i => i.status === 'Invoiced').length;
+        const paidInspections = inspections.filter(i => i.status === 'Paid').length;
 
         // Invoices for selected year
-        const invQuery = query(
-          collection(db, `users/${user.uid}/invoices`),
-          where('date', '>=', startOfYear),
-          where('date', '<', endOfYear)
-        );
-        const invDocs = await getDocs(invQuery);
-        const allInvoices = invDocs.docs.map(d => d.data());
+        const invoices = await findAllInvoices();
+        const allInvoices = invoices.filter(inv => {
+          if (!inv.date) return false;
+          const invDate = new Date(inv.date);
+          return invDate >= new Date(startOfYear) && invDate < new Date(endOfYear);
+        });
         const totalInvoices = allInvoices.length;
         const paidInvoices = allInvoices.filter(i => i.status === 'Paid').length;
         const unpaidInvoices = allInvoices.filter(i => i.status === 'Unpaid').length;
@@ -115,8 +144,11 @@ export default function Insights() {
           activeOperations,
           totalInspections,
           scheduledInspections,
-          completedInspections,
-          inProgressInspections,
+          prepInspections,
+          inspectedInspections,
+          reportInspections,
+          invoicedInspections,
+          paidInspections,
           totalInvoices,
           paidInvoices,
           unpaidInvoices,
@@ -131,18 +163,21 @@ export default function Insights() {
     };
 
     fetchStats();
-  }, [user, selectedYear]);
+  }, [user, selectedYear, findAllOperations, findAllInspections, findAllInvoices]);
 
   const inspectionPieData = stats
     ? [
-        { name: 'Completed', value: stats.completedInspections },
         { name: 'Scheduled', value: stats.scheduledInspections },
-        { name: 'In Progress', value: stats.inProgressInspections },
+        { name: 'Prep', value: stats.prepInspections },
+        { name: 'Inspected', value: stats.inspectedInspections },
+        { name: 'Report', value: stats.reportInspections },
+        { name: 'Invoiced', value: stats.invoicedInspections },
+        { name: 'Paid', value: stats.paidInspections },
         {
           name: 'Other',
           value: Math.max(
             0,
-            stats.totalInspections - stats.completedInspections - stats.scheduledInspections - stats.inProgressInspections
+            stats.totalInspections - stats.scheduledInspections - stats.prepInspections - stats.inspectedInspections - stats.reportInspections - stats.invoicedInspections - stats.paidInspections
           ),
         },
       ].filter(d => d.value > 0)
@@ -310,12 +345,15 @@ export default function Insights() {
               </div>
               <div className="space-y-4">
                 {[
-                  { label: 'Completed', count: stats.completedInspections, total: stats.totalInspections, color: 'bg-emerald-400' },
                   { label: 'Scheduled', count: stats.scheduledInspections, total: stats.totalInspections, color: 'bg-blue-400' },
-                  { label: 'In Progress', count: stats.inProgressInspections, total: stats.totalInspections, color: 'bg-amber-400' },
+                  { label: 'Prep', count: stats.prepInspections, total: stats.totalInspections, color: 'bg-amber-400' },
+                  { label: 'Inspected', count: stats.inspectedInspections, total: stats.totalInspections, color: 'bg-orange-400' },
+                  { label: 'Report', count: stats.reportInspections, total: stats.totalInspections, color: 'bg-purple-400' },
+                  { label: 'Invoiced', count: stats.invoicedInspections, total: stats.totalInspections, color: 'bg-cyan-400' },
+                  { label: 'Paid', count: stats.paidInspections, total: stats.totalInspections, color: 'bg-emerald-400' },
                   {
                     label: 'Other',
-                    count: Math.max(0, stats.totalInspections - stats.completedInspections - stats.scheduledInspections - stats.inProgressInspections),
+                    count: Math.max(0, stats.totalInspections - stats.scheduledInspections - stats.prepInspections - stats.inspectedInspections - stats.reportInspections - stats.invoicedInspections - stats.paidInspections),
                     total: stats.totalInspections,
                     color: 'bg-stone-300',
                   },

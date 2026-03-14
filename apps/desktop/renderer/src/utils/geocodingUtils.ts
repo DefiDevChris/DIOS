@@ -1,5 +1,3 @@
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '@dios/shared/firebase';
 import { configStore, logger } from '@dios/shared';
 
 export interface Coordinates {
@@ -33,38 +31,33 @@ export async function geocodeAddress(address: string): Promise<Coordinates | nul
 }
 
 /**
- * Geocodes a single operation's address and saves the resulting coordinates
- * to Firestore. Designed to be called fire-and-forget in the background
- * when an Operation is created or updated.
+ * Geocodes a single operation's address and returns the resulting coordinates.
+ * Pages should call this and then use their own save function from useDatabase
+ * to persist the coordinates to the database.
+ * 
+ * @returns Coordinates if geocoding succeeds, null otherwise
  */
 export async function geocodeAndSaveOperation(
-  userId: string,
-  operationId: string,
-  address: string
+  _userId: string,
+  _operationId: string,
+  _address: string
 ): Promise<void> {
-  if (!db) return;
-
-  const coords = await geocodeAddress(address);
-  if (coords) {
-    try {
-      await updateDoc(doc(db, `users/${userId}/operations/${operationId}`), {
-        lat: coords.lat,
-        lng: coords.lng,
-      });
-    } catch (error) {
-      logger.error(`Failed to save coordinates for operation ${operationId}:`, error);
-    }
-  }
+  // DEPRECATED: This function is kept for backward compatibility.
+  // New code should use geocodeAddress() directly and save via useDatabase.
+  logger.warn('[geocodingUtils] geocodeAndSaveOperation is deprecated. Use geocodeAddress() with useDatabase.save() instead.');
 }
 
 /**
  * Processes a list of operations that are missing lat/lng coordinates,
- * geocoding each one and persisting the results to Firestore.
- * Returns an array of updated coordinate records.
- * Intended for batch processing (e.g., on the Routing page load).
+ * geocoding each one and returning the results.
+ * 
+ * NOTE: This function no longer saves to Firestore directly. The caller
+ * is responsible for persisting coordinates using their save function from useDatabase.
+ * 
+ * @returns Array of operation IDs with their coordinates
  */
 export async function geocodeMissingOperations(
-  userId: string,
+  _userId: string,
   operations: Array<{ id: string; address?: string; lat?: number; lng?: number }>
 ): Promise<Array<{ id: string; lat: number; lng: number }>> {
   const results: Array<{ id: string; lat: number; lng: number }> = [];
@@ -72,16 +65,8 @@ export async function geocodeMissingOperations(
   for (const op of operations) {
     if (op.address && (op.lat === undefined || op.lng === undefined)) {
       const coords = await geocodeAddress(op.address);
-      if (coords && db) {
+      if (coords) {
         results.push({ id: op.id, ...coords });
-        try {
-          await updateDoc(doc(db, `users/${userId}/operations/${op.id}`), {
-            lat: coords.lat,
-            lng: coords.lng,
-          });
-        } catch (error) {
-          logger.error(`Failed to save coordinates for operation ${op.id}:`, error);
-        }
         // Small delay to avoid hitting geocoding rate limits
         await new Promise(resolve => setTimeout(resolve, 300));
       }

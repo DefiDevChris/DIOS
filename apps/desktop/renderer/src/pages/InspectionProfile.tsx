@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
+import { useDatabase } from '../hooks/useDatabase';
+import { collection, doc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@dios/shared/firebase';
-import { doc, onSnapshot, updateDoc, collection, getDocs, query, orderBy, setDoc, serverTimestamp, getDoc as getDocOnce } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
 import { getNextInvoiceNumber } from '../utils/invoiceNumbering';
@@ -11,26 +12,13 @@ import {
   MapPin, Building2, Save, Car, Link2, Search, X, DollarSign
 } from 'lucide-react';
 import { generateInvoicePdf } from '../lib/pdfGenerator';
-import type { InvoiceData } from '@dios/shared';
+import type { InvoiceData, Agency, Inspection as SharedInspection, Operation as SharedOperation, Expense as SharedExpense } from '@dios/shared';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 import { format } from 'date-fns';
 
-interface Inspection {
-  id: string;
-  operationId: string;
-  date: string;
-  status: 'Scheduled' | 'Prep' | 'Inspected' | 'Report' | 'Invoiced' | 'Paid' | 'Cancelled';
+interface Inspection extends SharedInspection {
   scope?: string;
-  baseHoursLog: number;
-  additionalHoursLog: number;
-  prepHours: number;
-  onsiteHours: number;
-  reportHours: number;
-  milesDriven: number;
-  calculatedMileage: number;
-  calculatedDriveTime: number;
-  reportNotes?: string;
   linkedExpenses?: string[];
   notes?: string;
   isBundled?: boolean;
@@ -43,42 +31,11 @@ interface Inspection {
   customLineItemAmount?: number;
   invoiceNotes?: string;
   invoiceExceptions?: string;
-  bundleId?: string;
-  prepChecklistData?: string;
-  reportChecklistData?: string;
-  reportCompleted?: boolean;
 }
 
-interface Expense {
-  id: string;
-  date: string;
-  vendor: string;
-  amount: number;
-  notes?: string;
-  receiptImageUrl?: string;
-}
+interface Expense extends SharedExpense {}
 
-interface Operation {
-  id: string;
-  name: string;
-  agencyId: string;
-  address: string;
-  lat?: number;
-  lng?: number;
-}
-
-interface Agency {
-  id: string;
-  name: string;
-  billingAddress: string;
-  flatRateBaseAmount: number;
-  flatRateIncludedHours: number;
-  additionalHourlyRate: number;
-  mileageRate: number;
-  travelTimeHourlyRate?: number;
-  perDiemRate?: number;
-  driveBillingMethod?: 'hourly' | 'mileage';
-}
+interface Operation extends SharedOperation {}
 
 import TasksWidget from '../components/TasksWidget';
 import Swal from 'sweetalert2';
@@ -88,7 +45,14 @@ export default function InspectionProfile() {
   const navigate = useNavigate();
   const { user, googleAccessToken } = useAuth();
   const { triggerSync } = useBackgroundSync();
-  
+
+  // Database hooks
+  const { findById: findInspectionById, save: saveInspection } = useDatabase<Inspection>({ table: 'inspections' });
+  const { findById: findOperationById } = useDatabase<Operation>({ table: 'operations' });
+  const { findById: findAgencyById } = useDatabase<Agency>({ table: 'agencies' });
+  const { findAll: findAllExpenses } = useDatabase<Expense>({ table: 'expenses' });
+  const { save: saveInvoice } = useDatabase<{ id: string; [key: string]: unknown }>({ table: 'invoices' });
+
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [operation, setOperation] = useState<Operation | null>(null);
   const [agency, setAgency] = useState<Agency | null>(null);
@@ -122,14 +86,12 @@ export default function InspectionProfile() {
   useEffect(() => {
     if (!user || !id) return;
 
-    const inspectionPath = `users/${user.uid}/inspections/${id}`;
-    const unsubscribe = onSnapshot(
-      doc(db, inspectionPath),
-      async (docSnapshot) => {
-        if (docSnapshot.exists()) {
-          const data = { id: docSnapshot.id, ...docSnapshot.data() } as Inspection;
+    const loadInspection = async () => {
+      try {
+        const data = await findInspectionById(id);
+        if (data) {
           setInspection(data);
-          
+
           // Initialize form state
           setNotes(data.notes || '');
           setStatus(data.status);
@@ -152,63 +114,65 @@ export default function InspectionProfile() {
           // Fetch operation
           if (data.operationId) {
             try {
-              const opDoc = await getDocs(collection(db, `users/${user.uid}/operations`));
-              const op = opDoc.docs.find(d => d.id === data.operationId);
-              if (op) {
-                const opData = { id: op.id, ...op.data() } as Operation;
+              const opData = await findOperationById(data.operationId);
+              if (opData) {
                 setOperation(opData);
 
                 // Fetch agency
                 if (opData.agencyId) {
-                  const agencyDoc = await getDocs(collection(db, `users/${user.uid}/agencies`));
-                  const ag = agencyDoc.docs.find(d => d.id === opData.agencyId);
-                  if (ag) {
-                    setAgency({ id: ag.id, ...ag.data() } as Agency);
+                  const agData = await findAgencyById(opData.agencyId);
+                  if (agData) {
+                    setAgency(agData);
                   }
                 }
               }
             } catch (error) {
-              logger.error("Error fetching related data:", error);
+              logger.error('Error fetching related data:', error);
             }
           }
         } else {
           navigate('/operations');
         }
         setLoading(false);
-      },
-      (error) => handleFirestoreError(error, OperationType.GET, inspectionPath)
-    );
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, `users/${user.uid}/inspections/${id}`);
+        setLoading(false);
+      }
+    };
 
-    return () => unsubscribe();
-  }, [user, id, navigate]);
+    loadInspection();
+  }, [user, id, findInspectionById, findOperationById, findAgencyById, navigate]);
 
   // Fetch expenses for linking interface
   useEffect(() => {
     if (!user) return;
-    const expensesPath = `users/${user.uid}/expenses`;
-    const q = query(collection(db, expensesPath), orderBy('date', 'desc'));
-    const unsubExpenses = onSnapshot(
-      q,
-      (snapshot) => {
-        setExpenses(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Expense)));
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, expensesPath)
-    );
-    return () => unsubExpenses();
-  }, [user]);
+
+    const loadExpenses = async () => {
+      try {
+        const allExpenses = await findAllExpenses();
+        // Sort by date descending
+        const sorted = allExpenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setExpenses(sorted);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/expenses`);
+      }
+    };
+
+    loadExpenses();
+  }, [user, findAllExpenses]);
 
   const handleSave = async () => {
-    if (!user || !id) return;
+    if (!user || !id || !inspection) return;
     setSaving(true);
-    
+
     let sharedDriveTime = 0;
     if (isBundled && totalTripStops > 0) {
       sharedDriveTime = Math.round(totalTripDriveTime) / totalTripStops;
     }
 
-    const inspectionPath = `users/${user.uid}/inspections/${id}`;
     try {
-      await updateDoc(doc(db, inspectionPath), {
+      await saveInspection({
+        ...inspection,
         notes,
         status,
         scope,
@@ -225,10 +189,13 @@ export default function InspectionProfile() {
         customLineItemName,
         customLineItemAmount,
         invoiceNotes,
-        invoiceExceptions
+        invoiceExceptions,
+        updatedAt: new Date().toISOString(),
       });
+      Swal.fire({ text: 'Changes saved successfully!', icon: 'success', timer: 1500, showConfirmButton: false });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, inspectionPath);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/inspections/${id}`);
+      Swal.fire({ text: 'Failed to save changes.', icon: 'error' });
     } finally {
       setSaving(false);
     }
@@ -236,14 +203,14 @@ export default function InspectionProfile() {
 
   const calculateInvoiceTotal = () => {
     if (!agency) return 0;
-    
+
     let total = agency.flatRateBaseAmount;
-    
+
     // Additional hours
     if (additionalHoursLog > 0) {
-      total += additionalHoursLog * agency.additionalHourlyRate;
+      total += additionalHoursLog * (agency.additionalHourlyRate || agency.hourlyRate || 0);
     }
-    
+
     // Drive billing (by hour or by mile based on agency setting)
     const billingMethod = agency.driveBillingMethod || 'hourly';
 
@@ -255,7 +222,7 @@ export default function InspectionProfile() {
         driveTime = totalTripDriveTime;
       }
       if (driveTime > 0) {
-        const travelRate = agency.travelTimeHourlyRate || agency.additionalHourlyRate;
+        const travelRate = agency.driveTimeHourlyRate || agency.additionalHourlyRate || agency.hourlyRate || 0;
         total += driveTime * travelRate;
       }
     } else {
@@ -284,19 +251,23 @@ export default function InspectionProfile() {
   };
 
   const handleToggleExpense = (expenseId: string) => {
-    setLinkedExpenses(prev =>
-      prev.includes(expenseId) ? prev.filter(id => id !== expenseId) : [...prev, expenseId]
+    setLinkedExpenses((prev) =>
+      prev.includes(expenseId) ? prev.filter((id) => id !== expenseId) : [...prev, expenseId]
     );
   };
 
   const handleSaveLinkedExpenses = async () => {
-    if (!user || !id) return;
+    if (!user || !id || !inspection) return;
     setSavingExpenses(true);
-    const inspectionPath = `users/${user.uid}/inspections/${id}`;
     try {
-      await updateDoc(doc(db, inspectionPath), { linkedExpenses });
+      await saveInspection({
+        ...inspection,
+        linkedExpenses,
+        updatedAt: new Date().toISOString(),
+      });
+      Swal.fire({ text: 'Linked expenses saved!', icon: 'success', timer: 1500, showConfirmButton: false });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, inspectionPath);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/inspections/${id}`);
     } finally {
       setSavingExpenses(false);
     }
@@ -309,45 +280,67 @@ export default function InspectionProfile() {
 
     try {
       // Fetch business profile from system_settings
-      const configDocRef = doc(db, `users/${user.uid}/system_settings/config`);
-      const configSnapshot = await getDocOnce(configDocRef);
-      const businessProfile = configSnapshot.exists() ? configSnapshot.data() : null;
+      const settingsSnap = await getDocs(collection(db!, `users/${user.uid}/system_settings`));
+      const configDoc = settingsSnap.docs.find((d) => d.id === 'config');
+      const businessProfile = configDoc?.data();
 
       const invoiceTotal = calculateInvoiceTotal();
-      const calculatedDriveTime = isBundled && totalTripStops > 0 ? Math.round(totalTripDriveTime) / totalTripStops : totalTripDriveTime;
+      const calculatedDriveTime =
+        isBundled && totalTripStops > 0 ? Math.round(totalTripDriveTime) / totalTripStops : totalTripDriveTime;
 
       const lineItems = [];
-      lineItems.push({ name: 'Inspection Fee', amount: agency.flatRateBaseAmount || 0, details: `${agency.flatRateIncludedHours} hrs included` });
+      lineItems.push({
+        name: 'Inspection Fee',
+        amount: agency.flatRateBaseAmount || 0,
+        details: `${agency.flatRateIncludedHours} hrs included`,
+      });
       if (additionalHoursLog > 0) {
-        lineItems.push({ name: 'Additional Hours', amount: additionalHoursLog * (agency.additionalHourlyRate || 0), details: `${additionalHoursLog} hrs` });
+        lineItems.push({
+          name: 'Additional Hours',
+          amount: additionalHoursLog * (agency.additionalHourlyRate || agency.hourlyRate || 0),
+          details: `${additionalHoursLog} hrs`,
+        });
       }
       if (calculatedDriveTime > 0) {
-        const driveRate = agency.travelTimeHourlyRate || agency.additionalHourlyRate || 0;
-        lineItems.push({ name: 'Drive Time', amount: calculatedDriveTime * driveRate, details: `${calculatedDriveTime.toFixed(1)} hrs` });
+        const driveRate = agency.driveTimeHourlyRate || agency.additionalHourlyRate || agency.hourlyRate || 0;
+        lineItems.push({
+          name: 'Drive Time',
+          amount: calculatedDriveTime * driveRate,
+          details: `${calculatedDriveTime.toFixed(1)} hrs`,
+        });
       }
       if (milesDriven > 0 && agency.mileageRate > 0) {
-        lineItems.push({ name: 'Mileage', amount: milesDriven * agency.mileageRate, details: `${milesDriven} mi` });
+        lineItems.push({
+          name: 'Mileage',
+          amount: milesDriven * agency.mileageRate,
+          details: `${milesDriven} mi`,
+        });
       }
       if (mealsAndExpenses > 0) {
         lineItems.push({ name: 'Meals & Expenses', amount: mealsAndExpenses });
       }
       if (perDiemDays > 0 && (agency.perDiemRate || 0) > 0) {
-        lineItems.push({ name: 'Per Diem', amount: perDiemDays * (agency.perDiemRate || 0), details: `${perDiemDays} days` });
+        lineItems.push({
+          name: 'Per Diem',
+          amount: perDiemDays * (agency.perDiemRate || 0),
+          details: `${perDiemDays} days`,
+        });
       }
       if (customLineItemAmount > 0) {
         lineItems.push({ name: customLineItemName || 'Custom Item', amount: customLineItemAmount });
       }
 
+      // Get invoice number
+      const year = new Date().getFullYear();
+      const invoicesSnap = await getDocs(collection(db!, `users/${user.uid}/invoices`));
+      const yearCount = invoicesSnap.docs.filter((d) => {
+        const num = d.data().invoiceNumber as string;
+        return num?.startsWith(`INV-${year}-`);
+      }).length;
+      const invoiceNumber = getNextInvoiceNumber(year, yearCount);
+
       const invoiceData: InvoiceData = {
-        invoiceNumber: await (async () => {
-          const year = new Date().getFullYear();
-          const invoicesSnap = await getDocs(collection(db, `users/${user.uid}/invoices`));
-          const yearCount = invoicesSnap.docs.filter(d => {
-            const num = d.data().invoiceNumber as string;
-            return num?.startsWith(`INV-${year}-`);
-          }).length;
-          return getNextInvoiceNumber(year, yearCount);
-        })(),
+        invoiceNumber,
         date: format(new Date(), 'MMM d, yyyy'),
         businessName: businessProfile?.businessName ?? '',
         businessAddress: businessProfile?.businessAddress ?? '',
@@ -369,18 +362,21 @@ export default function InspectionProfile() {
       // Attempt to save using the File System Access API
       if ('showSaveFilePicker' in window) {
         try {
-          const handle = await (window as any).showSaveFilePicker({
+          const handle = await (window as unknown as { showSaveFilePicker: (opts: unknown) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
             suggestedName: fileName,
-            types: [{
-              description: 'PDF Document',
-              accept: { 'application/pdf': ['.pdf'] },
-            }],
+            types: [
+              {
+                description: 'PDF Document',
+                accept: { 'application/pdf': ['.pdf'] },
+              },
+            ],
           });
           const writable = await handle.createWritable();
           await writable.write(pdfBlob);
           await writable.close();
-        } catch (err: any) {
-          if (err.name !== 'AbortError') {
+        } catch (err: unknown) {
+          const error = err as { name?: string };
+          if (error.name !== 'AbortError') {
             logger.error('File System Access API error:', err);
             // Fallback to standard download
             const url = URL.createObjectURL(pdfBlob);
@@ -419,12 +415,12 @@ export default function InspectionProfile() {
           triggerSync();
         }
       } catch (err) {
-        logger.warn("Drive queue failed:", err);
+        logger.warn('Drive queue failed:', err);
       }
 
-      // 4. Save to Firestore
-      const newInvoiceRef = doc(collection(db, `users/${user.uid}/invoices`));
-      await setDoc(newInvoiceRef, {
+      // 4. Save to Firestore using useDatabase
+      await saveInvoice({
+        id: crypto.randomUUID(),
         inspectionId: inspection.id,
         operationId: operation.id,
         operationName: operation.name,
@@ -433,8 +429,11 @@ export default function InspectionProfile() {
         date: new Date().toISOString(),
         inspectionDate: inspection.date,
         totalAmount: invoiceTotal,
-        status: 'Unpaid',
+        status: 'Not Complete',
+        invoiceNumber,
         createdAt: serverTimestamp(),
+        updatedAt: new Date().toISOString(),
+        syncStatus: 'pending',
       });
 
       Swal.fire({ text: 'Invoice generated successfully!', icon: 'success' });
@@ -453,37 +452,49 @@ export default function InspectionProfile() {
   if (!inspection) return null;
 
   const invoiceTotal = calculateInvoiceTotal();
-  const calculatedDriveTime = isBundled && totalTripStops > 0 ? Math.round(totalTripDriveTime) / totalTripStops : totalTripDriveTime;
+  const calculatedDriveTime =
+    isBundled && totalTripStops > 0 ? Math.round(totalTripDriveTime) / totalTripStops : totalTripDriveTime;
 
   return (
     <div className="animate-in fade-in duration-500 pb-12">
       {/* Breadcrumbs & Header */}
       <div className="mb-6">
-        <Link to={`/operations/${inspection.operationId}`} className="inline-flex items-center gap-2 text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors mb-4">
+        <Link
+          to={`/operations/${inspection.operationId}`}
+          className="inline-flex items-center gap-2 text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors mb-4"
+        >
           <ArrowLeft size={16} />
           Back to Operation
         </Link>
-        
+
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 mb-2">
               <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">
                 Inspection: {new Date(inspection.date).toLocaleDateString()}
               </h1>
-              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                status === 'Paid' || status === 'Invoiced' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
-              }`}>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                  status === 'Paid' || status === 'Invoiced' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                }`}
+              >
                 {status}
               </span>
             </div>
             <div className="flex items-center gap-4 text-sm text-stone-500">
-              <span className="flex items-center gap-1.5"><Building2 size={16} /> {operation?.name || 'Unknown Operation'}</span>
-              {agency && <span className="flex items-center gap-1.5"><Receipt size={16} /> {agency.name}</span>}
+              <span className="flex items-center gap-1.5">
+                <Building2 size={16} /> {operation?.name || 'Unknown Operation'}
+              </span>
+              {agency && (
+                <span className="flex items-center gap-1.5">
+                  <Receipt size={16} /> {agency.name}
+                </span>
+              )}
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={handleSave}
               disabled={saving}
               className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
@@ -498,7 +509,6 @@ export default function InspectionProfile() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Details & Notes */}
         <div className="lg:col-span-8 flex flex-col gap-6">
-          
           {/* Status & Basic Info */}
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100">
             <h2 className="text-lg font-bold text-stone-900 mb-4">Inspection Details</h2>
@@ -507,7 +517,7 @@ export default function InspectionProfile() {
                 <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Status</label>
                 <select
                   value={status}
-                  onChange={(e) => setStatus(e.target.value as any)}
+                  onChange={(e) => setStatus(e.target.value as Inspection['status'])}
                   className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
                 >
                   <option value="Scheduled">Scheduled</option>
@@ -526,7 +536,9 @@ export default function InspectionProfile() {
                 </div>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Scope of Inspection</label>
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                  Scope of Inspection
+                </label>
                 <textarea
                   value={scope}
                   onChange={(e) => setScope(e.target.value)}
@@ -544,7 +556,7 @@ export default function InspectionProfile() {
               <FileText size={18} className="text-[#D49A6A]" />
               <h2 className="text-lg font-bold text-stone-900">Inspection Notes</h2>
             </div>
-            <textarea 
+            <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full flex-1 min-h-[200px] resize-none bg-[#FDFCFB] border border-stone-200 border-dashed rounded-2xl p-4 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]/50 transition-all"
@@ -576,12 +588,14 @@ export default function InspectionProfile() {
               <Receipt size={18} className="text-[#D49A6A]" />
               <h2 className="text-lg font-bold text-stone-900">Additional Billing Items</h2>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Miles Driven</label>
-                <input 
-                  type="number" 
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                  Miles Driven
+                </label>
+                <input
+                  type="number"
                   min="0"
                   step="1"
                   value={milesDriven}
@@ -590,9 +604,11 @@ export default function InspectionProfile() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Meals & Expenses ($)</label>
-                <input 
-                  type="number" 
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                  Meals & Expenses ($)
+                </label>
+                <input
+                  type="number"
                   min="0"
                   step="0.01"
                   value={mealsAndExpenses}
@@ -601,9 +617,11 @@ export default function InspectionProfile() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Per Diem (Days)</label>
-                <input 
-                  type="number" 
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                  Per Diem (Days)
+                </label>
+                <input
+                  type="number"
                   min="0"
                   step="1"
                   value={perDiemDays}
@@ -617,9 +635,11 @@ export default function InspectionProfile() {
               <h3 className="text-sm font-bold text-stone-900 mb-4">Custom Line Item</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Item Description</label>
-                  <input 
-                    type="text" 
+                  <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                    Item Description
+                  </label>
+                  <input
+                    type="text"
                     value={customLineItemName}
                     onChange={(e) => setCustomLineItemName(e.target.value)}
                     placeholder="e.g., Hotel Stay"
@@ -627,9 +647,11 @@ export default function InspectionProfile() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Amount ($)</label>
-                  <input 
-                    type="number" 
+                  <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                    Amount ($)
+                  </label>
+                  <input
+                    type="number"
                     min="0"
                     step="0.01"
                     value={customLineItemAmount}
@@ -642,8 +664,10 @@ export default function InspectionProfile() {
 
             <div className="border-t border-stone-100 pt-6 space-y-6">
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Invoice Notes</label>
-                <textarea 
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                  Invoice Notes
+                </label>
+                <textarea
                   value={invoiceNotes}
                   onChange={(e) => setInvoiceNotes(e.target.value)}
                   className="w-full min-h-[80px] resize-none bg-stone-50 border border-stone-200 rounded-xl p-4 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
@@ -651,8 +675,10 @@ export default function InspectionProfile() {
                 ></textarea>
               </div>
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Exceptions / Internal Notes</label>
-                <textarea 
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                  Exceptions / Internal Notes
+                </label>
+                <textarea
                   value={invoiceExceptions}
                   onChange={(e) => setInvoiceExceptions(e.target.value)}
                   className="w-full min-h-[80px] resize-none bg-stone-50 border border-stone-200 rounded-xl p-4 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
@@ -717,7 +743,7 @@ export default function InspectionProfile() {
             ) : (
               <div className="border border-stone-100 rounded-2xl overflow-hidden divide-y divide-stone-100 max-h-72 overflow-y-auto">
                 {expenses
-                  .filter(exp => {
+                  .filter((exp) => {
                     if (!expenseSearch) return true;
                     const q = expenseSearch.toLowerCase();
                     return (
@@ -726,7 +752,7 @@ export default function InspectionProfile() {
                       exp.date.includes(q)
                     );
                   })
-                  .map(exp => {
+                  .map((exp) => {
                     const isLinked = linkedExpenses.includes(exp.id);
                     return (
                       <label
@@ -750,9 +776,7 @@ export default function InspectionProfile() {
                             <span className="text-xs text-stone-400">
                               {new Date(exp.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             </span>
-                            {exp.notes && (
-                              <span className="text-xs text-stone-400 truncate">&middot; {exp.notes}</span>
-                            )}
+                            {exp.notes && <span className="text-xs text-stone-400 truncate">&middot; {exp.notes}</span>}
                           </div>
                         </div>
                       </label>
@@ -767,7 +791,7 @@ export default function InspectionProfile() {
                 <span className="text-stone-500">Total linked amount:</span>
                 <span className="font-bold text-stone-900">
                   ${expenses
-                    .filter(e => linkedExpenses.includes(e.id))
+                    .filter((e) => linkedExpenses.includes(e.id))
                     .reduce((sum, e) => sum + e.amount, 0)
                     .toFixed(2)}
                 </span>
@@ -778,19 +802,20 @@ export default function InspectionProfile() {
 
         {/* Right Column: Time & Billing */}
         <div className="lg:col-span-4 flex flex-col gap-6">
-          
           {/* Hours Log */}
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100">
             <div className="flex items-center gap-2 mb-4">
               <Clock size={18} className="text-[#D49A6A]" />
               <h2 className="text-lg font-bold text-stone-900">Time Log</h2>
             </div>
-            
+
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Base Hours</label>
-                <input 
-                  type="number" 
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                  Base Hours
+                </label>
+                <input
+                  type="number"
                   min="0"
                   step="0.5"
                   value={baseHoursLog}
@@ -799,9 +824,11 @@ export default function InspectionProfile() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Additional Hours</label>
-                <input 
-                  type="number" 
+                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                  Additional Hours
+                </label>
+                <input
+                  type="number"
                   min="0"
                   step="0.5"
                   value={additionalHoursLog}
@@ -818,11 +845,11 @@ export default function InspectionProfile() {
               <Car size={18} className="text-[#D49A6A]" />
               <h2 className="text-lg font-bold text-stone-900">Drive Time</h2>
             </div>
-            
+
             <div className="space-y-4">
               <label className="flex items-center gap-3 p-3 border border-stone-200 rounded-xl cursor-pointer hover:bg-stone-50 transition-colors">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   checked={isBundled}
                   onChange={(e) => setIsBundled(e.target.checked)}
                   className="w-4 h-4 text-[#D49A6A] rounded border-stone-300 focus:ring-[#D49A6A]"
@@ -834,8 +861,8 @@ export default function InspectionProfile() {
                 <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
                   {isBundled ? 'Total Trip Drive Time (Hours)' : 'Drive Time (Hours)'}
                 </label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   min="0"
                   step="0.5"
                   value={totalTripDriveTime}
@@ -846,9 +873,11 @@ export default function InspectionProfile() {
 
               {isBundled && (
                 <div>
-                  <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Number of Stops (Operators)</label>
-                  <input 
-                    type="number" 
+                  <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                    Number of Stops (Operators)
+                  </label>
+                  <input
+                    type="number"
                     min="1"
                     step="1"
                     value={totalTripStops}
@@ -878,28 +907,35 @@ export default function InspectionProfile() {
               <Receipt size={18} className="text-[#D49A6A]" />
               <h2 className="text-lg font-bold text-white">Invoice Estimate</h2>
             </div>
-            
+
             {agency ? (
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between items-center text-stone-400">
                   <span>Base Rate ({agency.flatRateIncludedHours} hrs)</span>
-                  <span className="text-white">${agency.flatRateBaseAmount.toFixed(2)}</span>
+                  <span className="text-white">${(agency.flatRateBaseAmount || agency.flatRateAmount || 0).toFixed(2)}</span>
                 </div>
                 {additionalHoursLog > 0 && (
                   <div className="flex justify-between items-center text-stone-400">
-                    <span>Add'l Hours ({additionalHoursLog} @ ${agency.additionalHourlyRate}/hr)</span>
-                    <span className="text-white">${(additionalHoursLog * agency.additionalHourlyRate).toFixed(2)}</span>
+                    <span>Add&apos;l Hours ({additionalHoursLog} @ ${agency.additionalHourlyRate}/hr)</span>
+                    <span className="text-white">${(additionalHoursLog * (agency.additionalHourlyRate || agency.hourlyRate || 0)).toFixed(2)}</span>
                   </div>
                 )}
                 {calculatedDriveTime > 0 && (
                   <div className="flex justify-between items-center text-stone-400">
-                    <span>Drive Time ({calculatedDriveTime.toFixed(2)} @ ${(agency.travelTimeHourlyRate || agency.additionalHourlyRate).toFixed(2)}/hr)</span>
-                    <span className="text-white">${(calculatedDriveTime * (agency.travelTimeHourlyRate || agency.additionalHourlyRate)).toFixed(2)}</span>
+                    <span>
+                      Drive Time ({calculatedDriveTime.toFixed(2)} @ ${(
+                        agency.driveTimeHourlyRate || agency.additionalHourlyRate || agency.hourlyRate || 0
+                      ).toFixed(2)}
+                      /hr)
+                    </span>
+                    <span className="text-white">
+                      ${(calculatedDriveTime * (agency.driveTimeHourlyRate || agency.additionalHourlyRate || agency.hourlyRate || 0)).toFixed(2)}
+                    </span>
                   </div>
                 )}
                 {milesDriven > 0 && (
                   <div className="flex justify-between items-center text-stone-400">
-                    <span>Mileage ({milesDriven} @ ${(agency.mileageRate).toFixed(3)}/mi)</span>
+                    <span>Mileage ({milesDriven} @ ${agency.mileageRate.toFixed(3)}/mi)</span>
                     <span className="text-white">${(milesDriven * agency.mileageRate).toFixed(2)}</span>
                   </div>
                 )}
@@ -929,7 +965,7 @@ export default function InspectionProfile() {
             ) : (
               <div className="text-sm text-stone-400">Agency billing info not available.</div>
             )}
-            
+
             <button
               onClick={handleGenerateInvoice}
               disabled={saving || !agency}
@@ -938,7 +974,6 @@ export default function InspectionProfile() {
               {saving ? 'Generating...' : 'Generate Invoice'}
             </button>
           </div>
-
         </div>
       </div>
     </div>

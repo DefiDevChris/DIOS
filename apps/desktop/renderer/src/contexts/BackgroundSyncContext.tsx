@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, ReactNode, useC
 import { useAuth } from './AuthContext';
 import { startBackgroundSync, stopBackgroundSync, getQueueSize, processQueue } from '../lib/syncQueue';
 import { isElectron } from '../utils/isElectron';
+import { logger } from '@dios/shared';
 
 interface BackgroundSyncContextType {
   /** Number of items waiting in the offline queue */
@@ -28,7 +29,23 @@ export function BackgroundSyncProvider({ children }: { children: ReactNode }) {
   // Start/stop background sync based on auth state
   // In Electron, sync is handled by the main process sync engine.
   useEffect(() => {
-    if (isElectron) return;
+    if (isElectron()) {
+      // In Electron, start the main process sync engine (config is already stored via IPC)
+      if (googleAccessToken && window.electronAPI?.sync) {
+        window.electronAPI.sync.start().catch((err: Error) => {
+          logger.error('Failed to start Electron sync:', err);
+        });
+      } else if (!googleAccessToken && window.electronAPI?.sync) {
+        (async () => {
+          try {
+            await window.electronAPI?.sync?.stop();
+          } catch (err) {
+            logger.error('Failed to stop Electron sync:', err);
+          }
+        })();
+      }
+      return;
+    }
     if (!googleAccessToken) {
       stopBackgroundSync();
       return;
@@ -43,7 +60,7 @@ export function BackgroundSyncProvider({ children }: { children: ReactNode }) {
 
   // Track online/offline status
   useEffect(() => {
-    if (isElectron) return;
+    if (isElectron()) return;
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);

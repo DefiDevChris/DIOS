@@ -1,16 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import {
-  collection,
-  getDocs,
-  doc,
-  updateDoc,
-  deleteDoc,
-  setDoc,
-  query,
-  orderBy,
-} from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import {
   StickyNote,
@@ -24,31 +14,19 @@ import {
   Activity,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
+import type { Task as SharedTask, OperationActivity } from '@dios/shared';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  status: 'pending' | 'completed';
-  createdAt: string;
-  dueDate?: string;
-  priority?: 'low' | 'medium' | 'high';
-  operationId?: string;
-  inspectionId?: string;
-  // enriched client-side
+// Local Task interface extends shared Task with client-side enrichment
+interface Task extends SharedTask {
   operationName?: string;
   _source: 'task';
+  priority?: 'low' | 'medium' | 'high';
 }
 
-interface ActivityItem {
-  id: string;
-  type: string;
-  description: string;
-  timestamp: string;
+interface ActivityItem extends OperationActivity {
   // enriched client-side
-  operationId: string;
   operationName?: string;
   _source: 'activity';
 }
@@ -83,6 +61,8 @@ const priorityBadge: Record<string, string> = {
 
 export default function NotesTasks() {
   const { user } = useAuth();
+  const { findAll: findAllTasks, save: saveTask, remove: removeTask } = useDatabase<SharedTask>({ table: 'tasks' });
+  const { findAll: findAllOperations } = useDatabase<{ id: string; name: string }>({ table: 'operations' });
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -104,7 +84,7 @@ export default function NotesTasks() {
   // ── Fetch all data ──────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!user || !db) {
+    if (!user) {
       setLoading(false);
       return;
     }
@@ -113,33 +93,31 @@ export default function NotesTasks() {
       setLoading(true);
       try {
         // 1. Fetch all operations to build a name lookup map
-        const opsSnap = await getDocs(collection(db!, `users/${user.uid}/operations`));
+        const opsData = await findAllOperations();
         const opMap: Record<string, string> = {};
-        opsSnap.forEach((d) => {
-          opMap[d.id] = d.data().name ?? d.id;
+        opsData.forEach((op) => {
+          opMap[op.id] = op.name ?? op.id;
         });
         setOperationMap(opMap);
 
         // 2. Fetch global tasks
-        const tasksSnap = await getDocs(
-          query(collection(db!, `users/${user.uid}/tasks`), orderBy('createdAt', 'desc'))
-        );
-        const loadedTasks: Task[] = [];
-        tasksSnap.forEach((d) => {
-          const data = d.data() as Task;
-          loadedTasks.push({
-            ...data,
-            operationName: data.operationId ? opMap[data.operationId] : undefined,
-            _source: 'task',
-          });
-        });
+        const tasksData = await findAllTasks();
+        const loadedTasks: Task[] = tasksData.map((t) => ({
+          ...t,
+          operationName: t.operationId ? opMap[t.operationId] : undefined,
+          _source: 'task',
+        }));
         setTasks(loadedTasks);
 
-        // 3. Fetch activities from every operation
+        // 3. Fetch activities from every operation using useDatabase for operations
+        // Activities are subcollections, so we need to fetch them separately
         const loadedActivities: ActivityItem[] = [];
-        const activityFetches = opsSnap.docs.map(async (opDoc) => {
+        const { db } = await import('@dios/shared/firebase');
+        const { collection, getDocs } = await import('firebase/firestore');
+        
+        const activityFetches = opsData.map(async (op) => {
           const activitiesSnap = await getDocs(
-            collection(db!, `users/${user.uid}/operations/${opDoc.id}/activities`)
+            collection(db, `users/${user.uid}/operations/${op.id}/activities`)
           );
           activitiesSnap.forEach((aDoc) => {
             const data = aDoc.data();
@@ -148,9 +126,11 @@ export default function NotesTasks() {
               type: data.type ?? 'note',
               description: data.description ?? '',
               timestamp: data.timestamp ?? new Date().toISOString(),
-              operationId: opDoc.id,
-              operationName: opMap[opDoc.id],
+              operationId: op.id,
+              operationName: opMap[op.id],
               _source: 'activity',
+              updatedAt: data.updatedAt ?? new Date().toISOString(),
+              syncStatus: data.syncStatus ?? 'pending',
             });
           });
         });
@@ -164,15 +144,15 @@ export default function NotesTasks() {
     };
 
     loadAll();
-  }, [user]);
+  }, [user, findAllTasks, findAllOperations]);
 
   // ── Task actions ────────────────────────────────────────────────────────────
 
   const toggleTask = async (task: Task) => {
-    if (!user || !db) return;
+    if (!user) return;
     const next = task.status === 'pending' ? 'completed' : 'pending';
     try {
-      await updateDoc(doc(db, `users/${user.uid}/tasks/${task.id}`), { status: next });
+      await saveTask({ ...task, status: next });
       setTasks((prev) =>
         prev.map((t) => (t.id === task.id ? { ...t, status: next } : t))
       );
@@ -182,9 +162,9 @@ export default function NotesTasks() {
   };
 
   const deleteTask = async (taskId: string) => {
-    if (!user || !db) return;
+    if (!user) return;
     try {
-      await deleteDoc(doc(db, `users/${user.uid}/tasks/${taskId}`));
+      await removeTask(taskId);
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/tasks`);
@@ -193,20 +173,21 @@ export default function NotesTasks() {
 
   const addTask = async (e: { preventDefault: () => void }) => {
     e.preventDefault();
-    if (!user || !db || !newTitle.trim()) return;
+    if (!user || !newTitle.trim()) return;
     setAddingTask(true);
     const id = crypto.randomUUID();
-    const task: Task = {
+    const task: SharedTask & { priority?: 'low' | 'medium' | 'high' } = {
       id,
       title: newTitle.trim(),
       status: 'pending',
       priority: newPriority,
       createdAt: new Date().toISOString(),
-      _source: 'task',
+      updatedAt: new Date().toISOString(),
+      syncStatus: 'pending',
     };
     try {
-      await setDoc(doc(db, `users/${user.uid}/tasks/${id}`), task);
-      setTasks((prev) => [task, ...prev]);
+      await saveTask(task);
+      setTasks((prev) => [{ ...task, _source: 'task' as const }, ...prev]);
       setNewTitle('');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}/tasks`);

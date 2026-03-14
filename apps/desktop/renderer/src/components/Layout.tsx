@@ -3,6 +3,7 @@ import { Outlet, Link, useLocation, useNavigate, useSearchParams } from 'react-r
 import { useAuth } from '../contexts/AuthContext';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@dios/shared/firebase';
+// Note: system_settings/config is a special document path, keeping raw Firestore for this
 import {
   Search, CheckSquare, Settings, ChevronDown, Plus,
   LayoutDashboard, Building2, ClipboardCheck, FileText, Calendar,

@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useDatabase } from '../hooks/useDatabase';
 import { db } from '@dios/shared/firebase';
-import { doc, setDoc, collection } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
+// Note: system_settings/config is a special document path, keeping raw Firestore for this
+// Note: Agency creation now uses useDatabase hook
 import { geocodeAddress } from '../utils/geocodingUtils';
 import { logger } from '@dios/shared';
 import type { Agency } from '@dios/shared';
@@ -29,6 +32,7 @@ function buildDefaultSignature(name: string, title: string, biz: string, phone: 
 
 export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizardProps) {
   const { user } = useAuth();
+  const { save: saveAgency } = useDatabase<Agency>({ table: 'agencies' });
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
@@ -110,10 +114,9 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
         onboardingCompleted: true,
       });
 
-      // Create first agency if name provided
+      // Create first agency if name provided (using useDatabase)
       if (agencyName.trim()) {
-        const agenciesRef = collection(db, `users/${user.uid}/agencies`);
-        const newId = doc(agenciesRef).id;
+        const newId = crypto.randomUUID();
         const newAgency: Agency = {
           id: newId,
           name: agencyName.trim(),
@@ -162,7 +165,7 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
           updatedAt: new Date().toISOString(),
           syncStatus: 'pending',
         };
-        await setDoc(doc(db, `users/${user.uid}/agencies/${newId}`), newAgency);
+        await saveAgency(newAgency);
       }
 
       localStorage.setItem('dios_onboarding_completed', 'true');

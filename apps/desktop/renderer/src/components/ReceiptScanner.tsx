@@ -2,12 +2,12 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { logger } from '@dios/shared';
 import { createWorker } from 'tesseract.js';
 import { useAuth } from '../contexts/AuthContext';
+import { useDatabase } from '../hooks/useDatabase';
 import { Camera, RefreshCw, Upload, X, CheckCircle, FileText, ScanLine, PenLine } from 'lucide-react';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
-import { collection, doc, setDoc } from 'firebase/firestore';
-import { db } from '@dios/shared/firebase';
 import Swal from 'sweetalert2';
+import type { Expense } from '@dios/shared/types';
 
 interface ReceiptScannerProps {
   onClose: () => void;
@@ -89,6 +89,7 @@ export function parseOcrText(text: string): { date?: string; amount?: string; ve
 
 export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: ReceiptScannerProps) {
   const { user, googleAccessToken } = useAuth();
+  const { save: saveExpense } = useDatabase<Expense>({ table: 'expenses' });
   const { triggerSync } = useBackgroundSync();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -237,38 +238,39 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
     setUploading(true);
 
     try {
-      // Generate a deterministic doc reference so we can queue the file
+      // Generate a deterministic ID so we can queue the file
       // without awaiting the Firestore write (which hangs when network is disabled).
-      const expenseRef = doc(collection(db, 'users', user.uid, 'expenses'));
+      const expenseId = crypto.randomUUID();
 
-      const expenseData: Record<string, unknown> = {
+      const expenseData: Expense = {
+        id: expenseId,
         vendor,
         amount: parseFloat(amount) || 0,
         date,
         notes,
-        receiptFileName: null as string | null,
-        receiptFileId: null as string | null,
+        receiptFileId: undefined,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        syncStatus: 'pending',
       };
 
       if (imageFile) {
         const year = new Date(date).getFullYear();
         const fileName = `${Date.now()}_${imageFile.name || 'receipt.jpg'}`;
-        expenseData.receiptFileName = fileName;
 
         await queueFile(imageFile, {
           fileName,
           year,
           uid: user.uid,
-          firestoreDocPath: `users/${user.uid}/expenses/${expenseRef.id}`,
+          firestoreDocPath: `users/${user.uid}/expenses/${expenseId}`,
           firestoreField: 'receiptFileId',
         });
       }
 
       // Fire-and-forget: the local cache processes the write immediately;
       // server sync happens in the background when the network is available.
-      setDoc(expenseRef, expenseData).catch((error) => {
-        logger.error('Firestore write failed:', error);
+      saveExpense(expenseData).catch((error) => {
+        logger.error('Expense save failed:', error);
       });
 
       triggerSync();

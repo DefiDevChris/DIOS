@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
 import { geocodeAndSaveOperation } from '../utils/geocodingUtils';
@@ -10,14 +8,16 @@ import { ensureOperationFolder } from '../lib/driveSync';
 import { Plus, Edit2, Trash2, Building2, MapPin, Phone, Mail, Search, X, Briefcase, ChevronRight, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import Swal from 'sweetalert2';
+import { useDatabase } from '../hooks/useDatabase';
+import type { Operation, Agency } from '@dios/shared/types';
 
-interface Agency {
-  id: string;
-  name: string;
-  operationTypes: string;
-}
+// Extended Agency with operationTypes field used in UI
+type ExtendedAgency = Agency & {
+  operationTypes?: string;
+};
 
-interface Operation {
+// Extended Operation with local fields
+interface LocalOperation {
   id: string;
   name: string;
   address: string;
@@ -29,22 +29,25 @@ interface Operation {
   clientId: string;
   status: 'active' | 'inactive';
   notes: string;
-  lat?: number;
-  lng?: number;
 }
 
 export default function Operations() {
   const { user, googleAccessToken, isLocalUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [operations, setOperations] = useState<Operation[]>([]);
-  const [agencies, setAgencies] = useState<Agency[]>([]);
+  
+  // Database hooks
+  const { findAll: findAllOperations, save: saveOperation, remove: removeOperation } = useDatabase<Operation>({ table: 'operations' });
+  const { findAll: findAllAgencies } = useDatabase<ExtendedAgency>({ table: 'agencies' });
+  
+  const [operations, setOperations] = useState<LocalOperation[]>([]);
+  const [agencies, setAgencies] = useState<ExtendedAgency[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingOp, setEditingOp] = useState<Operation | null>(null);
+  const [editingOp, setEditingOp] = useState<LocalOperation | null>(null);
   const [opToDelete, setOpToDelete] = useState<string | null>(null);
 
   // Import State
@@ -77,45 +80,44 @@ export default function Operations() {
   });
 
   useEffect(() => {
-    if (!user || isLocalUser || !db) {
+    if (!user || isLocalUser) {
       setLoading(false);
       return;
     }
 
-    // Fetch Agencies for the dropdown
-    const agenciesPath = `users/${user.uid}/agencies`;
-    const unsubAgencies = onSnapshot(
-      collection(db, agenciesPath),
-      (snapshot) => {
-        const agenciesData: Agency[] = [];
-        snapshot.forEach((doc) => {
-          agenciesData.push({ id: doc.id, name: doc.data().name, operationTypes: doc.data().operationTypes || '["crop","handler"]' });
-        });
-        setAgencies(agenciesData);
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, agenciesPath)
-    );
+    const fetchData = async () => {
+      try {
+        // Fetch Agencies for the dropdown
+        const agenciesData = await findAllAgencies();
+        setAgencies(agenciesData.map(a => ({ 
+          ...a,
+          operationTypes: a.operationTypes || '["crop","handler"]' 
+        })));
 
-    // Fetch Operations
-    const opsPath = `users/${user.uid}/operations`;
-    const unsubOps = onSnapshot(
-      collection(db, opsPath),
-      (snapshot) => {
-        const opsData: Operation[] = [];
-        snapshot.forEach((doc) => {
-          opsData.push(doc.data() as Operation);
-        });
-        setOperations(opsData);
+        // Fetch Operations
+        const opsData = await findAllOperations();
+        setOperations(opsData.map(op => ({
+          id: op.id,
+          name: op.name,
+          address: op.address,
+          contactName: op.contactName,
+          phone: op.phone,
+          email: op.email,
+          agencyId: op.agencyId,
+          operationType: op.operationType || '',
+          clientId: op.clientId || '',
+          status: op.status,
+          notes: op.notes || '',
+        })));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'operations');
+      } finally {
         setLoading(false);
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, opsPath)
-    );
-
-    return () => {
-      unsubAgencies();
-      unsubOps();
+      }
     };
-  }, [user, isLocalUser]);
+
+    fetchData();
+  }, [user, isLocalUser, findAllOperations, findAllAgencies]);
 
   // Auto-open "Add Operation" modal when navigated here with ?new=1
   useEffect(() => {
@@ -126,7 +128,7 @@ export default function Operations() {
     }
   }, [location.search]);
 
-  const handleOpenModal = (op?: Operation) => {
+  const handleOpenModal = (op?: LocalOperation) => {
     if (op) {
       setEditingOp(op);
       setFormData({
@@ -171,22 +173,39 @@ export default function Operations() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || isLocalUser || !db) {
+    if (!user || isLocalUser) {
       Swal.fire({ text: 'Cannot save operation in offline mode.', icon: 'warning' });
       return;
     }
 
-    const opId = editingOp ? editingOp.id : doc(collection(db, `users/${user.uid}/operations`)).id;
-    const path = `users/${user.uid}/operations/${opId}`;
+    const opId = editingOp ? editingOp.id : crypto.randomUUID();
     
     const opData: Operation = {
       id: opId,
-      ...formData
+      ...formData,
+      updatedAt: new Date().toISOString(),
+      syncStatus: 'pending',
     };
 
     try {
-      await setDoc(doc(db, path), opData, { merge: true });
+      await saveOperation(opData);
       handleCloseModal();
+
+      // Refresh operations list
+      const updatedOps = await findAllOperations();
+      setOperations(updatedOps.map(op => ({
+        id: op.id,
+        name: op.name,
+        address: op.address,
+        contactName: op.contactName,
+        phone: op.phone,
+        email: op.email,
+        agencyId: op.agencyId,
+        operationType: op.operationType || '',
+        clientId: op.clientId || '',
+        status: op.status,
+        notes: op.notes || '',
+      })));
 
       // Fire-and-forget background geocoding whenever an address is present
       // and coordinates are not yet stored (new op) or address may have changed.
@@ -207,7 +226,7 @@ export default function Operations() {
         }
       }
     } catch (error) {
-      handleFirestoreError(error, editingOp ? OperationType.UPDATE : OperationType.CREATE, path);
+      handleFirestoreError(error, editingOp ? OperationType.UPDATE : OperationType.CREATE, 'operations');
       Swal.fire({ text: 'Failed to save operation. Please try again.', icon: 'error' });
     }
   };
@@ -217,17 +236,31 @@ export default function Operations() {
   };
 
   const confirmDelete = async () => {
-    if (!user || !opToDelete || isLocalUser || !db) {
+    if (!user || !opToDelete || isLocalUser) {
       Swal.fire({ text: 'Cannot delete operation in offline mode.', icon: 'warning' });
       return;
     }
     
-    const path = `users/${user.uid}/operations/${opToDelete}`;
     try {
-      await deleteDoc(doc(db, path));
+      await removeOperation(opToDelete);
       setOpToDelete(null);
+      // Refresh operations list
+      const updatedOps = await findAllOperations();
+      setOperations(updatedOps.map(op => ({
+        id: op.id,
+        name: op.name,
+        address: op.address,
+        contactName: op.contactName,
+        phone: op.phone,
+        email: op.email,
+        agencyId: op.agencyId,
+        operationType: op.operationType || '',
+        clientId: op.clientId || '',
+        status: op.status,
+        notes: op.notes || '',
+      })));
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
+      handleFirestoreError(error, OperationType.DELETE, 'operations');
       Swal.fire({ text: 'Failed to delete operation.', icon: 'error' });
     }
   };
@@ -237,16 +270,14 @@ export default function Operations() {
   };
 
   const handleConfirmImport = async () => {
-    if (!user || !importAgencyId || isLocalUser || !db) {
+    if (!user || !importAgencyId || isLocalUser) {
       Swal.fire({ text: 'Cannot import operations in offline mode.', icon: 'warning' });
       return;
     }
 
     try {
-      // Instead of writeBatch (since we don't have it imported and setDoc is easy), we'll use Promise.all
-      // Note: For very large CSVs, a batch is better, but this works fine for typical sizes.
       const importPromises = importData.map(row => {
-        const opId = doc(collection(db, `users/${user.uid}/operations`)).id;
+        const opId = crypto.randomUUID();
         const opData: Operation = {
           id: opId,
           name: importMapping.name ? (row[importMapping.name] || '') : '',
@@ -259,22 +290,41 @@ export default function Operations() {
           clientId: importMapping.clientId ? (row[importMapping.clientId] || '') : '',
           status: 'active',
           notes: 'Imported from CSV',
+          updatedAt: new Date().toISOString(),
+          syncStatus: 'pending',
         };
 
         // Only import if we at least have a name
         if (opData.name.trim()) {
-          return setDoc(doc(db, `users/${user.uid}/operations/${opId}`), opData);
+          return saveOperation(opData);
         }
         return Promise.resolve();
       });
 
       await Promise.all(importPromises);
+      
+      // Refresh operations list
+      const updatedOps = await findAllOperations();
+      setOperations(updatedOps.map(op => ({
+        id: op.id,
+        name: op.name,
+        address: op.address,
+        contactName: op.contactName,
+        phone: op.phone,
+        email: op.email,
+        agencyId: op.agencyId,
+        operationType: op.operationType || '',
+        clientId: op.clientId || '',
+        status: op.status,
+        notes: op.notes || '',
+      })));
+      
       setIsImportModalOpen(false);
       setImportData([]);
       setImportHeaders([]);
       Swal.fire({ text: `Successfully imported ${importData.length} operations.`, icon: 'success', timer: 2000, showConfirmButton: false });
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/operations`);
+      handleFirestoreError(error, OperationType.CREATE, 'operations');
       Swal.fire({ text: 'Failed to import operations. Please try again.', icon: 'error' });
     }
   };
@@ -571,7 +621,7 @@ export default function Operations() {
                       {(() => {
                         const selectedAgency = agencies.find(a => a.id === formData.agencyId);
                         const types: string[] = selectedAgency
-                          ? (() => { try { return JSON.parse(selectedAgency.operationTypes); } catch { return ['crop', 'handler']; } })()
+                          ? (() => { try { return JSON.parse(selectedAgency.operationTypes || '["crop","handler"]'); } catch { return ['crop', 'handler']; } })()
                           : ['crop', 'handler'];
                         return types.map((t: string) => (
                           <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>

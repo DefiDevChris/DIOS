@@ -19,9 +19,11 @@ export interface Agency {
   billingAddress: string
   isFlatRate: boolean
   flatRateAmount: number
+  flatRateBaseAmount?: number
   flatRateIncludedHours: number
   flatRateOverageRate: number
   hourlyRate: number
+  additionalHourlyRate?: number
   driveTimeHourlyRate: number
   mileageReimbursed: boolean
   mileageRate: number
@@ -39,6 +41,7 @@ export interface Agency {
   reportChecklistItems: string
   defaultLineItems: string
   driveFolderId?: string
+  driveBillingMethod?: string
   updatedAt: string
   syncStatus: 'pending' | 'synced' | 'failed'
 }
@@ -94,6 +97,7 @@ export interface Inspection {
   invoiceExceptions?: string
   prepChecklistData: string
   reportChecklistData: string
+  reportNotes?: string
   reportCompleted?: boolean
   googleCalendarEventId?: string
   updatedAt: string
@@ -116,7 +120,7 @@ export interface Invoice {
   sentDate?: string
   paidDate?: string
   lineItems?: string
-  createdAt?: any
+  createdAt?: string
   updatedAt: string
   syncStatus: 'pending' | 'synced' | 'failed'
 }
@@ -131,6 +135,9 @@ export interface Expense {
   receiptFileId?: string
   inspectionId?: string
   category?: string
+  createdAt: string
+  updatedAt: string
+  syncStatus: 'pending' | 'synced' | 'failed'
 }
 
 export interface Task {
@@ -142,20 +149,31 @@ export interface Task {
   dueDate?: string
   operationId?: string
   inspectionId?: string
+  updatedAt: string
+  syncStatus: 'pending' | 'synced' | 'failed'
 }
 
 export interface OperationDocument {
+  id: string
   name: string
   size: number
   type: string
   uploadedAt: string
   url: string
+  operationId?: string
+  localPath?: string
+  updatedAt?: string
+  syncStatus?: 'pending' | 'synced' | 'failed'
 }
 
 export interface OperationActivity {
+  id: string
   type: string
   description: string
   timestamp: string
+  operationId: string
+  updatedAt?: string
+  syncStatus?: 'pending' | 'synced' | 'failed'
 }
 
 export interface UnassignedUpload {
@@ -213,6 +231,7 @@ export interface Note {
   operationId?: string
   createdAt: string
   updatedAt: string
+  syncStatus: 'pending' | 'synced' | 'failed'
 }
 
 export interface InvoiceData {

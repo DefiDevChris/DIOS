@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { Send, StickyNote as StickyNoteIcon, CheckSquare } from 'lucide-react';
+import type { Note, Task } from '@dios/shared/types';
 
 interface StickyNoteProps {
   operationId: string;
@@ -12,6 +12,8 @@ interface StickyNoteProps {
 
 export default function StickyNote({ operationId, onSaved }: StickyNoteProps) {
   const { user } = useAuth();
+  const { save: saveNote } = useDatabase<Note>({ table: 'notes' });
+  const { save: saveTask } = useDatabase<Task>({ table: 'tasks' });
   const [content, setContent] = useState('');
   const [mode, setMode] = useState<'note' | 'task'>('note');
   const [dueDate, setDueDate] = useState('');
@@ -24,31 +26,28 @@ export default function StickyNote({ operationId, onSaved }: StickyNoteProps) {
     const now = new Date().toISOString();
 
     try {
+      const newId = crypto.randomUUID();
       if (mode === 'note') {
-        const colRef = collection(db, `users/${user.uid}/notes`);
-        const newId = doc(colRef).id;
-        await setDoc(doc(db, `users/${user.uid}/notes/${newId}`), {
+        await saveNote({
           id: newId,
           content: content.trim(),
           operationId,
           createdAt: now,
           updatedAt: now,
           syncStatus: 'pending',
-        });
+        } as Note);
       } else {
-        const colRef = collection(db, `users/${user.uid}/tasks`);
-        const newId = doc(colRef).id;
-        await setDoc(doc(db, `users/${user.uid}/tasks/${newId}`), {
+        await saveTask({
           id: newId,
           title: content.trim(),
-          description: null,
+          description: undefined,
           status: 'pending',
           operationId,
-          dueDate: dueDate || null,
+          dueDate: dueDate || undefined,
           createdAt: now,
           updatedAt: now,
           syncStatus: 'pending',
-        });
+        } as Task);
       }
 
       setContent('');

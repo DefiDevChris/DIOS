@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { configStore, logger } from '@dios/shared';
 import { Table2, Download, ExternalLink, FileSpreadsheet, Loader, Maximize2, X, FolderOpen } from 'lucide-react';
 import Swal from 'sweetalert2';
@@ -10,6 +9,35 @@ interface SelectedSheet {
   id: string;
   name: string;
   url: string;
+}
+
+// Type definitions for useDatabase
+interface Inspection {
+  id: string;
+  date?: string;
+  status?: string;
+  operationId?: string;
+  baseHoursLog?: number;
+  additionalHoursLog?: number;
+  milesDriven?: number;
+}
+
+interface Invoice {
+  id: string;
+  date?: string;
+  operationName?: string;
+  agencyName?: string;
+  totalAmount?: number;
+  status?: string;
+}
+
+interface Expense {
+  id: string;
+  date?: string;
+  vendor?: string;
+  category?: string;
+  amount?: number;
+  notes?: string;
 }
 
 // Dynamically load the Google API JS script (gapi)
@@ -38,6 +66,11 @@ export default function Sheets() {
   const [pickerLoading, setPickerLoading] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [iframeError, setIframeError] = useState(false);
+
+  // Database hooks for exports
+  const { findAll: findAllInspections } = useDatabase<Inspection>({ table: 'inspections' });
+  const { findAll: findAllInvoices } = useDatabase<Invoice>({ table: 'invoices' });
+  const { findAll: findAllExpenses } = useDatabase<Expense>({ table: 'expenses' });
 
   const token = googleAccessToken || localStorage.getItem('googleAccessToken');
   const apiKey = configStore.getConfig()?.googleMapsApiKey ?? '';
@@ -106,22 +139,21 @@ export default function Sheets() {
   };
 
   const exportInspections = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     setExporting('inspections');
     try {
-      const docs = await getDocs(collection(db, `users/${user.uid}/inspections`));
+      const inspections = await findAllInspections();
       const header = ['ID', 'Date', 'Status', 'Operation ID', 'Base Hours', 'Additional Hours', 'Miles Driven'];
       const rows: string[][] = [header];
-      docs.forEach(d => {
-        const data = d.data();
+      inspections.forEach(i => {
         rows.push([
-          d.id,
-          data.date || '',
-          data.status || '',
-          data.operationId || '',
-          String(data.baseHoursLog || 0),
-          String(data.additionalHoursLog || 0),
-          String(data.milesDriven || 0),
+          i.id,
+          i.date || '',
+          i.status || '',
+          i.operationId || '',
+          String(i.baseHoursLog || 0),
+          String(i.additionalHoursLog || 0),
+          String(i.milesDriven || 0),
         ]);
       });
       const url = await createGoogleSheet(`DIOS Inspections Export – ${new Date().toLocaleDateString()}`, rows);
@@ -135,21 +167,20 @@ export default function Sheets() {
   };
 
   const exportInvoices = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     setExporting('invoices');
     try {
-      const docs = await getDocs(collection(db, `users/${user.uid}/invoices`));
+      const invoices = await findAllInvoices();
       const header = ['ID', 'Date', 'Operation', 'Agency', 'Amount', 'Status'];
       const rows: string[][] = [header];
-      docs.forEach(d => {
-        const data = d.data();
+      invoices.forEach(inv => {
         rows.push([
-          d.id,
-          data.date ? new Date(data.date).toLocaleDateString() : '',
-          data.operationName || '',
-          data.agencyName || '',
-          String(data.totalAmount || 0),
-          data.status || '',
+          inv.id,
+          inv.date ? new Date(inv.date).toLocaleDateString() : '',
+          inv.operationName || '',
+          inv.agencyName || '',
+          String(inv.totalAmount || 0),
+          inv.status || '',
         ]);
       });
       const url = await createGoogleSheet(`DIOS Invoices Export – ${new Date().toLocaleDateString()}`, rows);
@@ -163,21 +194,20 @@ export default function Sheets() {
   };
 
   const exportExpenses = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     setExporting('expenses');
     try {
-      const docs = await getDocs(collection(db, `users/${user.uid}/expenses`));
+      const expenses = await findAllExpenses();
       const header = ['ID', 'Date', 'Vendor', 'Category', 'Amount', 'Notes'];
       const rows: string[][] = [header];
-      docs.forEach(d => {
-        const data = d.data();
+      expenses.forEach(exp => {
         rows.push([
-          d.id,
-          data.date || '',
-          data.vendor || '',
-          data.category || '',
-          String(data.amount || 0),
-          data.notes || '',
+          exp.id,
+          exp.date || '',
+          exp.vendor || '',
+          exp.category || '',
+          String(exp.amount || 0),
+          exp.notes || '',
         ]);
       });
       const url = await createGoogleSheet(`DIOS Expenses Export – ${new Date().toLocaleDateString()}`, rows);

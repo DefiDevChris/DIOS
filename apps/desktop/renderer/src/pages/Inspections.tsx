@@ -1,33 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { ClipboardCheck, Search, Calendar, ChevronRight, MapPin, Clock, Download } from 'lucide-react';
 import { generateCsv, downloadCsv } from '../utils/csvExport';
+import { useDatabase } from '../hooks/useDatabase';
+import type { Inspection, Operation, Agency } from '@dios/shared/types';
 
-interface Inspection {
-  id: string;
-  operationId: string;
-  date: string;
-  status: 'Scheduled' | 'In Progress' | 'Completed' | 'Cancelled';
-  baseHoursLog?: number;
-  additionalHoursLog?: number;
-  milesDriven?: number;
+// Extended Inspection with scope field used in UI
+type ExtendedInspection = Inspection & {
   scope?: string;
-}
-
-interface Operation {
-  id: string;
-  name: string;
-  agencyId: string;
-}
-
-interface Agency {
-  id: string;
-  name: string;
-}
+};
 
 const STATUS_COLORS: Record<string, string> = {
   'Scheduled': 'bg-blue-100 text-blue-700',
@@ -40,7 +23,12 @@ export default function Inspections() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [inspections, setInspections] = useState<Inspection[]>([]);
+  // Database hooks
+  const { findAll: findAllInspections } = useDatabase<ExtendedInspection>({ table: 'inspections' });
+  const { findAll: findAllOperations } = useDatabase<Operation>({ table: 'operations' });
+  const { findAll: findAllAgencies } = useDatabase<Agency>({ table: 'agencies' });
+
+  const [inspections, setInspections] = useState<ExtendedInspection[]>([]);
   const [operations, setOperations] = useState<Operation[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,43 +36,34 @@ export default function Inspections() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
-    const opsUnsub = onSnapshot(
-      collection(db, `users/${user.uid}/operations`),
-      (snapshot) => {
-        setOperations(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Operation)));
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/operations`)
-    );
-
-    const agenciesUnsub = onSnapshot(
-      collection(db, `users/${user.uid}/agencies`),
-      (snapshot) => {
-        setAgencies(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Agency)));
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/agencies`)
-    );
-
-    const inspPath = `users/${user.uid}/inspections`;
-    const inspUnsub = onSnapshot(
-      query(collection(db, inspPath), orderBy('date', 'desc')),
-      (snapshot) => {
-        setInspections(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Inspection)));
-        setLoading(false);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, inspPath);
+    const fetchData = async () => {
+      try {
+        const [inspectionsData, operationsData, agenciesData] = await Promise.all([
+          findAllInspections(),
+          findAllOperations(),
+          findAllAgencies(),
+        ]);
+        
+        // Sort inspections by date desc
+        const sortedInspections = inspectionsData.sort((a, b) => b.date.localeCompare(a.date));
+        
+        setInspections(sortedInspections);
+        setOperations(operationsData);
+        setAgencies(agenciesData);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'inspections');
+      } finally {
         setLoading(false);
       }
-    );
-
-    return () => {
-      opsUnsub();
-      agenciesUnsub();
-      inspUnsub();
     };
-  }, [user]);
+
+    fetchData();
+  }, [user, findAllInspections, findAllOperations, findAllAgencies]);
 
   const getOperation = (operationId: string) => operations.find(o => o.id === operationId);
   const getAgencyName = (agencyId?: string) => agencies.find(a => a.id === agencyId)?.name;

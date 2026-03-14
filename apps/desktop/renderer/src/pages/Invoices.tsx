@@ -1,9 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import {
-  collection, query, orderBy, onSnapshot, doc, updateDoc, getDoc, getDocs, where
-} from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
 import { Receipt, Calendar, Building2, ExternalLink, FileDown, Loader } from 'lucide-react';
@@ -14,6 +10,8 @@ import type { InvoiceData } from '@dios/shared';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 import Swal from 'sweetalert2';
+import { useDatabase } from '../hooks/useDatabase';
+import type { Invoice, Inspection, Agency, Operation, Expense } from '@dios/shared/types';
 
 interface InvoiceRecord {
   id: string;
@@ -25,14 +23,38 @@ interface InvoiceRecord {
   date: string;
   inspectionDate: string;
   totalAmount: number;
+  pdfDriveId?: string;
   status: 'Not Complete' | 'Sent' | 'Paid';
   sentDate?: string;
   paidDate?: string;
 }
 
+// Extended types with local fields
+type ExtendedInspection = Inspection & {
+  linkedExpenses?: string[];
+  lineItems?: string;
+  invoiceNotes?: string;
+};
+
+type ExtendedAgency = Agency & {
+  billingAddress?: string;
+};
+
+type ExtendedExpense = Expense & {
+  amount: number;
+};
+
 export default function Invoices() {
   const { user, googleAccessToken } = useAuth();
   const { triggerSync } = useBackgroundSync();
+  
+  // Database hooks
+  const { findAll: findAllInvoices, save: saveInvoice } = useDatabase<Invoice>({ table: 'invoices' });
+  const { findById: findInspectionById } = useDatabase<ExtendedInspection>({ table: 'inspections' });
+  const { findById: findAgencyById } = useDatabase<ExtendedAgency>({ table: 'agencies' });
+  const { findById: findOperationById } = useDatabase<Operation>({ table: 'operations' });
+  const { findAll: findAllExpenses } = useDatabase<ExtendedExpense>({ table: 'expenses' });
+  
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'All' | 'Not Complete' | 'Sent' | 'Paid'>('All');
@@ -64,38 +86,58 @@ export default function Invoices() {
   }
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
-    const invoicesPath = `users/${user.uid}/invoices`;
-    const q = query(
-      collection(db, invoicesPath),
-      orderBy('createdAt', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const invoiceData = snapshot.docs.map(doc => ({
+    const fetchInvoices = async () => {
+      try {
+        const data = await findAllInvoices();
+        const invoiceData = data.map(doc => ({
           id: doc.id,
-          ...doc.data()
+          ...doc
         })) as InvoiceRecord[];
-
+        
         setInvoices(invoiceData);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'invoices');
+      } finally {
         setLoading(false);
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, invoicesPath)
-    );
+      }
+    };
 
-    return () => unsubscribe();
-  }, [user]);
+    fetchInvoices();
+  }, [user, findAllInvoices]);
 
   const markPaid = async (invoiceId: string) => {
     if (!user) return;
     try {
-      await updateDoc(doc(db, `users/${user.uid}/invoices/${invoiceId}`), {
+      const invoice = invoices.find(i => i.id === invoiceId);
+      if (!invoice) return;
+      
+      const updatedInvoice: Invoice = {
+        id: invoiceId,
+        inspectionId: invoice.inspectionId,
+        operationId: invoice.operationId,
+        operationName: invoice.operationName,
+        agencyId: invoice.agencyId,
+        agencyName: invoice.agencyName,
+        date: invoice.date,
+        inspectionDate: invoice.inspectionDate,
+        totalAmount: invoice.totalAmount,
+        pdfDriveId: invoice.pdfDriveId,
         status: 'Paid',
         paidDate: new Date().toISOString(),
-      });
+        updatedAt: new Date().toISOString(),
+        syncStatus: 'pending',
+      };
+      
+      await saveInvoice(updatedInvoice);
+      
+      // Refresh invoices list
+      const updatedInvoices = await findAllInvoices();
+      setInvoices(updatedInvoices.map(doc => ({ id: doc.id, ...doc })) as InvoiceRecord[]);
     } catch (error) {
       logger.error('Error updating invoice status', error);
     }
@@ -107,39 +149,42 @@ export default function Invoices() {
 
     try {
       // 1. Fetch inspection data
-      const inspectionSnap = await getDoc(doc(db, `users/${user.uid}/inspections/${invoice.inspectionId}`));
-      const inspectionData = inspectionSnap.exists() ? inspectionSnap.data() : {};
+      const inspectionData = await findInspectionById(invoice.inspectionId) || {};
 
       // 2. Fetch agency data
       let agencyData: Record<string, any> = {};
       if (invoice.agencyId) {
-        const agencySnap = await getDoc(doc(db, `users/${user.uid}/agencies/${invoice.agencyId}`));
-        if (agencySnap.exists()) agencyData = agencySnap.data();
+        const agency = await findAgencyById(invoice.agencyId);
+        if (agency) agencyData = agency as Record<string, any>;
       }
 
       // 3. Fetch operation address
       let operationAddress = '';
       if (invoice.operationId) {
-        const opSnap = await getDoc(doc(db, `users/${user.uid}/operations/${invoice.operationId}`));
-        if (opSnap.exists()) operationAddress = opSnap.data().address || '';
+        const op = await findOperationById(invoice.operationId);
+        if (op) operationAddress = op.address || '';
       }
 
       // 4. Sum any linked expenses for meals totals
       let linkedMeals = 0;
-      if (inspectionData.linkedExpenses && inspectionData.linkedExpenses.length > 0) {
-        const expSnap = await getDocs(
-          query(collection(db, `users/${user.uid}/expenses`), where('__name__', 'in', inspectionData.linkedExpenses.slice(0, 10)))
-        );
-        expSnap.forEach(d => { linkedMeals += d.data().amount || 0; });
+      const linkedExpenses = (inspectionData as any).linkedExpenses;
+      if (linkedExpenses && linkedExpenses.length > 0) {
+        const allExpenses = await findAllExpenses();
+        const expenseIds = linkedExpenses.slice(0, 10);
+        expenseIds.forEach((expId: string) => {
+          const exp = allExpenses.find(e => e.id === expId);
+          if (exp) linkedMeals += exp.amount || 0;
+        });
       }
 
       // 5. Build line items using stored lineItems or fallback
       let lineItems = [];
       let totalAmount = invoice.totalAmount;
 
-      if (inspectionData.lineItems) {
+      const inspectionLineItems = (inspectionData as any).lineItems;
+      if (inspectionLineItems) {
         try {
-          lineItems = JSON.parse(inspectionData.lineItems);
+          lineItems = JSON.parse(inspectionLineItems);
         } catch {
           lineItems = [];
         }
@@ -147,14 +192,14 @@ export default function Invoices() {
 
       if (lineItems.length === 0) {
         // Fallback: build simple line items from legacy data
-        const baseAmount = agencyData.flatRateBaseAmount || 0;
+        const baseAmount = agencyData.flatRateAmount || 0;
         if (baseAmount > 0) {
           lineItems.push({ name: 'Inspection Fee', amount: baseAmount, details: '' });
         }
         totalAmount = invoice.totalAmount || baseAmount;
       }
 
-      const invoiceData: InvoiceData = {
+      const invoiceDataForPdf: InvoiceData = {
         invoiceNumber: `INV-${invoice.id.slice(0, 6).toUpperCase()}`,
         date: invoice.date ? format(new Date(invoice.date), 'MMM d, yyyy') : format(new Date(), 'MMM d, yyyy'),
         businessName: '',
@@ -168,12 +213,12 @@ export default function Invoices() {
         agencyAddress: agencyData.billingAddress || '',
         lineItems,
         totalAmount,
-        notes: inspectionData.invoiceNotes || '',
+        notes: (inspectionData as any).invoiceNotes || '',
       };
 
-      const pdfBlob = generateInvoicePdf(invoiceData);
+      const pdfBlob = generateInvoicePdf(invoiceDataForPdf);
       const year = invoice.date ? new Date(invoice.date).getFullYear() : new Date().getFullYear();
-      const fileName = `Invoice_${invoiceData.invoiceNumber}_${invoice.operationName.replace(/\s+/g, '_')}.pdf`;
+      const fileName = `Invoice_${invoiceDataForPdf.invoiceNumber}_${invoice.operationName.replace(/\s+/g, '_')}.pdf`;
 
       // 6. Download locally
       const url = URL.createObjectURL(pdfBlob);

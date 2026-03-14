@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '@dios/shared/firebase';
-import { collection, onSnapshot, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { useDatabase } from '../hooks/useDatabase';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
 import { format, addDays } from 'date-fns';
 import { Calendar as CalendarIcon, RefreshCw, Loader, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import Swal from 'sweetalert2';
+import type { Inspection, Operation } from '@dios/shared';
 
 interface InspectionEvent {
   id: string;
@@ -22,6 +22,9 @@ interface InspectionEvent {
 export default function Schedule() {
   const { user, googleAccessToken } = useAuth();
   const navigate = useNavigate();
+  const { findAll: findAllInspections, save: saveInspection } = useDatabase<Inspection>({ table: 'inspections' });
+  const { findAll: findAllOperations } = useDatabase<Operation>({ table: 'operations' });
+  
   const [events, setEvents] = useState<InspectionEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -37,65 +40,55 @@ export default function Schedule() {
     const fetchOperationsAndInspections = async () => {
       try {
         // Fetch operations first to get names
-        const opsSnapshot = await getDocs(collection(db, `users/${user.uid}/operations`));
+        const opsData = await findAllOperations();
         const opsMap = new Map<string, string>();
-        opsSnapshot.forEach(doc => {
-          opsMap.set(doc.id, doc.data().name);
+        opsData.forEach(op => {
+          opsMap.set(op.id, op.name);
         });
 
-        // Listen to inspections
-        const inspectionsPath = `users/${user.uid}/inspections`;
-        const unsubscribe = onSnapshot(
-          collection(db, inspectionsPath),
-          (snapshot) => {
-            const eventsData: InspectionEvent[] = [];
-            snapshot.forEach((doc) => {
-              const data = doc.data();
-              if (data.date) {
-                // Parse the start date (YYYY-MM-DD format)
-                const [year, month, day] = data.date.split('-');
-                const startDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        // Fetch inspections
+        const inspectionsData = await findAllInspections();
+        setInspections(inspectionsData);
+        const eventsData: InspectionEvent[] = [];
+        
+        inspectionsData.forEach((inspection) => {
+          if (inspection.date) {
+            // Parse the start date (YYYY-MM-DD format)
+            const [year, month, day] = inspection.date.split('-');
+            const startDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
 
-                // Parse the end date if present; otherwise default to start date
-                let endDate = startDate;
-                if (data.endDate) {
-                  const [eYear, eMonth, eDay] = data.endDate.split('-');
-                  endDate = new Date(parseInt(eYear), parseInt(eMonth) - 1, parseInt(eDay));
-                }
+            // Parse the end date if present; otherwise default to start date
+            let endDate = startDate;
+            if (inspection.endDate) {
+              const [eYear, eMonth, eDay] = inspection.endDate.split('-');
+              endDate = new Date(parseInt(eYear), parseInt(eMonth) - 1, parseInt(eDay));
+            }
 
-                eventsData.push({
-                  id: doc.id,
-                  title: `${opsMap.get(data.operationId) || 'Unknown Operation'} (${data.status})`,
-                  start: startDate,
-                  end: endDate,
-                  status: data.status,
-                  operationId: data.operationId,
-                  googleCalendarEventId: data.googleCalendarEventId,
-                });
-              }
+            eventsData.push({
+              id: inspection.id,
+              title: `${opsMap.get(inspection.operationId) || 'Unknown Operation'} (${inspection.status})`,
+              start: startDate,
+              end: endDate,
+              status: inspection.status,
+              operationId: inspection.operationId,
+              googleCalendarEventId: inspection.googleCalendarEventId,
             });
-            setEvents(eventsData);
-            setLoading(false);
-          },
-          (error) => handleFirestoreError(error, OperationType.LIST, inspectionsPath)
-        );
-
-        return unsubscribe;
+          }
+        });
+        
+        setEvents(eventsData);
+        setLoading(false);
       } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, `users/${user?.uid}/operations`);
+        handleFirestoreError(error, OperationType.LIST, `users/${user?.uid}/inspections`);
         setLoading(false);
       }
     };
 
-    let unsub: () => void;
-    fetchOperationsAndInspections().then(u => {
-      if (u) unsub = u;
-    });
+    fetchOperationsAndInspections();
+  }, [user, findAllInspections, findAllOperations]);
 
-    return () => {
-      if (unsub) unsub();
-    };
-  }, [user]);
+  // Store inspections in state so the Google Calendar sync can access them
+  const [inspections, setInspections] = useState<Inspection[]>([]);
 
   // Pull changes from Google Calendar -> Firestore.
   // Returns the number of Firestore documents that were updated.
@@ -145,8 +138,15 @@ export default function Schedule() {
           newEndDate = format(inclusiveEnd, 'yyyy-MM-dd');
         }
 
-        const inspectionRef = doc(db, `users/${user.uid}/inspections`, event.id);
-        await updateDoc(inspectionRef, { date: gcalStartDate, endDate: newEndDate });
+        // Update inspection using useDatabase
+        const inspectionToUpdate = inspections.find(i => i.id === event.id);
+        if (inspectionToUpdate) {
+          await saveInspection({
+            ...inspectionToUpdate,
+            date: gcalStartDate,
+            endDate: newEndDate,
+          });
+        }
         updatedCount++;
         logger.debug(`[GCal sync] Updated inspection ${event.id}: ${firestoreStartDate} -> ${gcalStartDate}`);
       } catch (err) {
@@ -155,7 +155,7 @@ export default function Schedule() {
     }
 
     return updatedCount;
-  }, [events, googleAccessToken, user]);
+  }, [events, googleAccessToken, user, inspections, saveInspection]);
 
   // Run a silent pull-sync once after the initial event load completes.
   const initialSyncRan = useRef(false);
@@ -208,12 +208,9 @@ export default function Schedule() {
           end: { date: format(gcalEnd, 'yyyy-MM-dd') },
         };
 
-        // Fetch the latest googleCalendarEventId directly from Firestore to avoid stale state
-        const inspectionRef = doc(db, `users/${user!.uid}/inspections`, event.id);
-        const inspectionSnap = await getDoc(inspectionRef);
-        const storedGcalId = inspectionSnap.exists()
-          ? inspectionSnap.data().googleCalendarEventId
-          : undefined;
+        // Get the latest googleCalendarEventId from local state to avoid stale state
+        const currentInspection = inspections.find(i => i.id === event.id);
+        const storedGcalId = currentInspection?.googleCalendarEventId;
 
         let response: Response;
 
@@ -249,7 +246,13 @@ export default function Schedule() {
 
             if (response.ok) {
               const created = await response.json();
-              await updateDoc(inspectionRef, { googleCalendarEventId: created.id });
+              // Update inspection with new googleCalendarEventId using useDatabase
+              if (currentInspection) {
+                await saveInspection({
+                  ...currentInspection,
+                  googleCalendarEventId: created.id,
+                });
+              }
               createdCount++;
             } else {
               failCount++;
@@ -277,7 +280,12 @@ export default function Schedule() {
           if (response.ok) {
             const created = await response.json();
             // Persist the Google Calendar Event ID to prevent future duplicates
-            await updateDoc(inspectionRef, { googleCalendarEventId: created.id });
+            if (currentInspection) {
+              await saveInspection({
+                ...currentInspection,
+                googleCalendarEventId: created.id,
+              });
+            }
             createdCount++;
           } else {
             failCount++;
