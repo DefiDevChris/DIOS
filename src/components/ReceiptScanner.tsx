@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { createWorker } from 'tesseract.js';
 import { useAuth } from '../contexts/AuthContext';
 import { Camera, RefreshCw, Upload, X, CheckCircle, FileText, ScanLine, PenLine } from 'lucide-react';
@@ -12,6 +12,22 @@ interface ReceiptScannerProps {
   onSuccess: () => void;
   mode?: 'camera' | 'manual';
 }
+
+interface OcrWord {
+  text: string;
+  bbox: { x0: number; y0: number; x1: number; y1: number };
+}
+
+interface ImgLayout {
+  renderedW: number;
+  renderedH: number;
+  offsetX: number;
+  offsetY: number;
+  naturalW: number;
+  naturalH: number;
+}
+
+type ActiveField = 'date' | 'vendor' | 'amount' | null;
 
 function parseOcrText(text: string): { date?: string; amount?: string; vendor?: string } {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
@@ -79,17 +95,51 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
 
   const [isScanning, setIsScanning] = useState(false);
   const [ocrStatus, setOcrStatus] = useState('');
+  const [ocrWords, setOcrWords] = useState<OcrWord[]>([]);
+  const [activeField, setActiveField] = useState<ActiveField>(null);
 
   const [vendor, setVendor] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
 
+  const [imgLayout, setImgLayout] = useState<ImgLayout | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const imgContainerRef = useRef<HTMLDivElement>(null);
+
+  const updateImgLayout = useCallback(() => {
+    const img = imgRef.current;
+    const container = imgContainerRef.current;
+    if (!img || !container || !img.naturalWidth) return;
+
+    const { naturalWidth: nw, naturalHeight: nh } = img;
+    const { clientWidth: cw, clientHeight: ch } = container;
+    const imgAspect = nw / nh;
+    const containerAspect = cw / ch;
+
+    let renderedW: number, renderedH: number, offsetX: number, offsetY: number;
+    if (imgAspect > containerAspect) {
+      renderedW = cw;
+      renderedH = cw / imgAspect;
+      offsetX = 0;
+      offsetY = (ch - renderedH) / 2;
+    } else {
+      renderedH = ch;
+      renderedW = ch * imgAspect;
+      offsetX = (cw - renderedW) / 2;
+      offsetY = 0;
+    }
+
+    setImgLayout({ renderedW, renderedH, offsetX, offsetY, naturalW: nw, naturalH: nh });
+  }, []);
 
   useEffect(() => {
     if (!imageFile) {
       setPreviewUrl(null);
+      setOcrWords([]);
+      setImgLayout(null);
       return;
     }
 
@@ -99,6 +149,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
     let cancelled = false;
     const runOcr = async () => {
       setIsScanning(true);
+      setOcrWords([]);
       setOcrStatus('Initialising OCR…');
       let worker;
       try {
@@ -113,14 +164,17 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
           },
         });
 
-        const { data: { text } } = await worker.recognize(imageFile);
+        const { data } = await worker.recognize(imageFile);
         if (cancelled) return;
 
-        const parsed = parseOcrText(text);
+        const parsed = parseOcrText(data.text);
 
         if (parsed.vendor) setVendor(v => v || parsed.vendor!);
         if (parsed.amount) setAmount(a => a || parsed.amount!);
         if (parsed.date) setDate(parsed.date);
+
+        // Store word bounding boxes for Tap to Fill
+        setOcrWords(data.words as OcrWord[]);
 
         setOcrStatus('Done');
       } catch (err) {
@@ -142,6 +196,13 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
     };
   }, [imageFile]);
 
+  const handleWordClick = (wordText: string) => {
+    if (!activeField) return;
+    if (activeField === 'vendor') setVendor(v => v ? `${v} ${wordText}` : wordText);
+    if (activeField === 'amount') setAmount(a => a ? `${a} ${wordText}` : wordText);
+    if (activeField === 'date') setDate(d => d ? `${d} ${wordText}` : wordText);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setVendor('');
@@ -149,6 +210,9 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
       setDate(new Date().toISOString().split('T')[0]);
       setNotes('');
       setSuccess(false);
+      setOcrWords([]);
+      setActiveField(null);
+      setImgLayout(null);
       setImageFile(e.target.files[0]);
     }
   };
@@ -214,6 +278,12 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
     }
   };
 
+  const activeFieldLabel: Record<NonNullable<ActiveField>, string> = {
+    date: 'Date',
+    vendor: 'Vendor',
+    amount: 'Amount',
+  };
+
   const isManualMode = mode === 'manual';
   const headerLabel = isManualMode ? 'Add Manually' : 'Capture Receipt';
   const HeaderIcon = isManualMode ? PenLine : Camera;
@@ -250,10 +320,43 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
               {/* Left Side: Image Capture / Preview (camera mode only) */}
               {!isManualMode && (
                 <div className="w-full md:w-1/2 flex flex-col gap-4">
-                  <div className="aspect-[3/4] bg-stone-200 rounded-2xl overflow-hidden border-2 border-dashed border-stone-300 flex flex-col items-center justify-center relative">
+                  <div
+                    ref={imgContainerRef}
+                    className="aspect-[3/4] bg-stone-200 rounded-2xl overflow-hidden border-2 border-dashed border-stone-300 flex flex-col items-center justify-center relative"
+                  >
                     {previewUrl ? (
                       <>
-                        <img src={previewUrl} alt="Receipt Preview" className="w-full h-full object-cover" />
+                        <img
+                          ref={imgRef}
+                          src={previewUrl}
+                          alt="Receipt Preview"
+                          className="w-full h-full object-contain"
+                          onLoad={updateImgLayout}
+                        />
+
+                        {/* Tap-to-Fill word overlays */}
+                        {!isScanning && ocrWords.length > 0 && imgLayout && (
+                          ocrWords.map((word, i) => {
+                            const { renderedW, renderedH, offsetX, offsetY, naturalW, naturalH } = imgLayout;
+                            const left = offsetX + (word.bbox.x0 / naturalW) * renderedW;
+                            const top = offsetY + (word.bbox.y0 / naturalH) * renderedH;
+                            const width = ((word.bbox.x1 - word.bbox.x0) / naturalW) * renderedW;
+                            const height = ((word.bbox.y1 - word.bbox.y0) / naturalH) * renderedH;
+                            return (
+                              <div
+                                key={i}
+                                onClick={() => handleWordClick(word.text)}
+                                title={word.text}
+                                style={{ left, top, width, height }}
+                                className={`absolute cursor-pointer rounded transition-colors ${
+                                  activeField
+                                    ? 'hover:bg-[#D49A6A]/40 hover:ring-1 hover:ring-[#D49A6A]/70'
+                                    : 'hover:bg-white/20 hover:ring-1 hover:ring-white/40'
+                                }`}
+                              />
+                            );
+                          })
+                        )}
 
                         {isScanning && (
                           <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-3">
@@ -262,7 +365,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                           </div>
                         )}
 
-                        {!isScanning && (
+                        {!isScanning && ocrWords.length === 0 && (
                           <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-2 opacity-0 hover:opacity-100 transition-opacity">
                             <button
                               type="button"
@@ -272,9 +375,19 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                               <RefreshCw size={18} />
                               Retake
                             </button>
-                            {ocrStatus === 'Done' && (
-                              <p className="text-white text-xs font-medium">Fields auto-filled from OCR</p>
-                            )}
+                          </div>
+                        )}
+
+                        {!isScanning && ocrWords.length > 0 && (
+                          <div className="absolute bottom-2 left-2 right-2">
+                            <button
+                              type="button"
+                              onClick={handleRetake}
+                              className="bg-white/90 text-stone-700 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 shadow"
+                            >
+                              <RefreshCw size={13} />
+                              Retake
+                            </button>
                           </div>
                         )}
                       </>
@@ -304,10 +417,20 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                     />
                   </div>
 
+                  {/* OCR status / Tap-to-Fill hint */}
                   {ocrStatus && ocrStatus !== 'Done' && !isScanning && (
                     <p className="text-xs text-stone-400 text-center">{ocrStatus}</p>
                   )}
-                  {ocrStatus === 'Done' && (
+                  {ocrStatus === 'Done' && ocrWords.length > 0 && (
+                    <div className="bg-[#D49A6A]/10 border border-[#D49A6A]/30 rounded-xl px-3 py-2 text-center">
+                      <p className="text-xs text-[#a87040] font-semibold">
+                        {activeField
+                          ? `Tap words on the image to fill "${activeFieldLabel[activeField]}"`
+                          : 'Focus a field below, then tap words on the image to fill it'}
+                      </p>
+                    </div>
+                  )}
+                  {ocrStatus === 'Done' && ocrWords.length === 0 && (
                     <p className="text-xs text-emerald-600 text-center font-medium">OCR complete – review and confirm fields</p>
                   )}
                 </div>
@@ -323,32 +446,57 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                       required
                       value={date}
                       onChange={(e) => setDate(e.target.value)}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                      onFocus={() => setActiveField('date')}
+                      className={`w-full bg-white border rounded-xl px-4 py-2.5 text-sm transition-all ${
+                        activeField === 'date'
+                          ? 'border-[#D49A6A] ring-2 ring-[#D49A6A]/20'
+                          : 'border-stone-200 focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]'
+                      }`}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Vendor / Payee</label>
+                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">
+                      Vendor / Payee
+                      {activeField === 'vendor' && ocrWords.length > 0 && (
+                        <span className="ml-2 text-[#D49A6A] normal-case font-medium">← tap image to fill</span>
+                      )}
+                    </label>
                     <input
                       type="text"
                       required
                       value={vendor}
                       onChange={(e) => setVendor(e.target.value)}
+                      onFocus={() => setActiveField('vendor')}
                       placeholder="e.g., Home Depot"
-                      className="w-full bg-white border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                      className={`w-full bg-white border rounded-xl px-4 py-2.5 text-sm transition-all ${
+                        activeField === 'vendor'
+                          ? 'border-[#D49A6A] ring-2 ring-[#D49A6A]/20'
+                          : 'border-stone-200 focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]'
+                      }`}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Amount ($)</label>
+                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">
+                      Amount ($)
+                      {activeField === 'amount' && ocrWords.length > 0 && (
+                        <span className="ml-2 text-[#D49A6A] normal-case font-medium">← tap image to fill</span>
+                      )}
+                    </label>
                     <input
                       type="number"
                       step="0.01"
                       required
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
+                      onFocus={() => setActiveField('amount')}
                       placeholder="0.00"
-                      className="w-full bg-white border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                      className={`w-full bg-white border rounded-xl px-4 py-2.5 text-sm transition-all ${
+                        activeField === 'amount'
+                          ? 'border-[#D49A6A] ring-2 ring-[#D49A6A]/20'
+                          : 'border-stone-200 focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]'
+                      }`}
                     />
                   </div>
 
