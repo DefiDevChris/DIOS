@@ -16,6 +16,7 @@
     "@tailwindcss/vite": "^4.1.14",
     "@types/gapi.client.gmail": "^1.0.5",
     "@types/papaparse": "^5.5.2",
+    "@types/recharts": "^1.8.29",
     "@vitejs/plugin-react": "^5.0.4",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
@@ -32,6 +33,7 @@
     "react-big-calendar": "^1.19.4",
     "react-dom": "^19.0.0",
     "react-router": "^7.13.1",
+    "recharts": "^3.8.0",
     "tesseract.js": "^7.0.0",
     "vite": "^6.2.0"
   },
