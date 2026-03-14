@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, getDocs, setDoc, getDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { 
   ArrowLeft, Calendar, Clock, FileText, Receipt, CheckCircle, 
   MapPin, Building2, Save, Car
 } from 'lucide-react';
+import { generateInvoicePDF } from '../utils/pdfGenerator';
 
 interface Inspection {
   id: string;
@@ -54,7 +55,7 @@ import TasksWidget from '../components/TasksWidget';
 export default function InspectionProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, googleAccessToken } = useAuth();
   
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [operation, setOperation] = useState<Operation | null>(null);
@@ -225,6 +226,88 @@ export default function InspectionProfile() {
   }
 
   if (!inspection) return null;
+
+  const handleGenerateInvoice = async () => {
+    if (!user || !id || !inspection || !operation || !agency) return;
+
+    try {
+      // 1. Generate PDF
+      const invoiceNumber = `INV-${new Date().getFullYear()}-${id.slice(-4).toUpperCase()}`;
+      const dateGenerated = new Date().toISOString();
+      const pdfData = {
+        inspection,
+        operation,
+        agency,
+        invoiceNumber,
+        dateGenerated
+      };
+
+      const docPdf = generateInvoicePDF(pdfData);
+
+      // Get the PDF as a Blob
+      const pdfBlob = docPdf.output('blob');
+
+      // 2. Upload to Google Drive if token is available
+      let pdfDriveId = '';
+      if (googleAccessToken) {
+        // Fetch user config for driveRootFolderId
+        const configDoc = await getDoc(doc(db, `users/${user.uid}/system_settings/config`));
+        let parentFolderId = '';
+        if (configDoc.exists()) {
+          parentFolderId = configDoc.data().driveRootFolderId || '';
+        }
+
+        const metadata = {
+          name: `${invoiceNumber}.pdf`,
+          mimeType: 'application/pdf',
+          ...(parentFolderId ? { parents: [parentFolderId] } : {})
+        };
+
+        const formData = new FormData();
+        formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+        formData.append('file', pdfBlob);
+
+        const uploadResponse = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${googleAccessToken}`
+          },
+          body: formData
+        });
+
+        if (uploadResponse.ok) {
+          const driveFile = await uploadResponse.json();
+          pdfDriveId = driveFile.id;
+        } else {
+          console.error('Failed to upload to Google Drive:', await uploadResponse.text());
+          // Optional: we can still download it fallback
+          docPdf.save(`${invoiceNumber}.pdf`);
+        }
+      } else {
+        // Fallback to local download if not authenticated with Drive
+        docPdf.save(`${invoiceNumber}.pdf`);
+      }
+
+      // 3. Save Invoice record to Firestore
+      const invoiceId = `INV_${id}_${Date.now()}`;
+      const invoicePath = `users/${user.uid}/invoices/${invoiceId}`;
+
+      await setDoc(doc(db, invoicePath), {
+        id: invoiceId,
+        inspectionId: id,
+        agencyId: agency.id,
+        totalAmount: calculateInvoiceTotal(),
+        pdfDriveId,
+        status: 'Unpaid',
+        dateGenerated
+      });
+
+      alert('Invoice generated and saved!');
+    } catch (error) {
+      console.error('Error generating invoice:', error);
+      alert('Failed to generate invoice.');
+    }
+  };
 
   const invoiceTotal = calculateInvoiceTotal();
   const calculatedDriveTime = isBundled && totalTripStops > 0 ? Math.round(totalTripDriveTime) / totalTripStops : totalTripDriveTime;
@@ -564,7 +647,10 @@ export default function InspectionProfile() {
               <div className="text-sm text-stone-400">Agency billing info not available.</div>
             )}
             
-            <button className="w-full mt-6 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2">
+            <button
+              onClick={handleGenerateInvoice}
+              className="w-full mt-6 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
               Generate Invoice
             </button>
           </div>
