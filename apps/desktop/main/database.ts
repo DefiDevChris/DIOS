@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import { app } from 'electron'
-import { CREATE_TABLES } from './schema'
+import { CREATE_TABLES, migrateSchema } from './schema'
 
 let dbInstance: Database.Database | null = null
 
@@ -37,6 +37,7 @@ export function getDatabase(): Database.Database {
   dbInstance.pragma('foreign_keys = ON')
 
   dbInstance.exec(CREATE_TABLES)
+  migrateSchema(dbInstance)
 
   return dbInstance
 }
