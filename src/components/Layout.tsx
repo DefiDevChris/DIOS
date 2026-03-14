@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { doc, getDoc } from 'firebase/firestore';
@@ -7,15 +7,18 @@ import {
   Search, CheckSquare, Settings, ChevronDown, Plus,
   LayoutDashboard, Building2, ClipboardCheck, FileText, Calendar,
   StickyNote, Mail, Map as MapIcon, BarChart2, LineChart,
-  HardDrive, ExternalLink, Wallet
+  HardDrive, ExternalLink, Wallet, DollarSign
 } from 'lucide-react';
 import LeafLogo from './LeafLogo';
 
 export default function Layout() {
   const { user, googleAccessToken, signInWithGoogle } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [driveMasterId, setDriveMasterId] = useState<string | null>(null);
   const [driveLoading, setDriveLoading] = useState(false);
+  const [showNewMenu, setShowNewMenu] = useState(false);
+  const newMenuRef = useRef<HTMLDivElement>(null);
 
   // Detect local demo mode
   const isLocalDemo = (() => {
@@ -63,6 +66,23 @@ export default function Layout() {
       setDriveLoading(false);
     }
   };
+
+  // Close new menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) {
+        setShowNewMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const newMenuItems = [
+    { label: 'New Operation', icon: Building2, path: '/operations?new=1' },
+    { label: 'New Inspection', icon: ClipboardCheck, path: '/inspections?new=1' },
+    { label: 'New Expense', icon: DollarSign, path: '/expenses?new=1' },
+  ];
 
   const NavItem = ({ to, icon: Icon, label, active }: { to: string, icon: any, label: string, active?: boolean }) => {
     const isActive = active !== undefined ? active : location.pathname === to;
@@ -126,14 +146,38 @@ export default function Layout() {
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-64 bg-[#F9F8F6] flex flex-col border-r border-stone-200 overflow-y-auto">
-          <div className="p-4">
-            <button className="w-full bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl py-2.5 px-4 flex items-center justify-between transition-colors shadow-sm">
+          <div className="p-4 relative" ref={newMenuRef}>
+            <button
+              onClick={() => setShowNewMenu(prev => !prev)}
+              className="w-full bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl py-2.5 px-4 flex items-center justify-between transition-colors shadow-sm"
+            >
               <div className="flex items-center gap-2 font-medium text-sm">
                 <Plus size={18} />
                 New
               </div>
-              <ChevronDown size={16} className="opacity-70" />
+              <ChevronDown
+                size={16}
+                className={`opacity-70 transition-transform duration-200 ${showNewMenu ? 'rotate-180' : ''}`}
+              />
             </button>
+
+            {showNewMenu && (
+              <div className="absolute left-4 right-4 top-full mt-1 bg-white border border-stone-200 rounded-2xl shadow-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                {newMenuItems.map(({ label, icon: Icon, path }) => (
+                  <button
+                    key={path}
+                    onClick={() => {
+                      setShowNewMenu(false);
+                      navigate(path);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-stone-700 hover:bg-stone-50 hover:text-stone-900 transition-colors first:pt-3.5 last:pb-3.5"
+                  >
+                    <Icon size={16} className="text-[#D49A6A] shrink-0" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <nav className="flex-1 px-3 pb-4 space-y-0.5">

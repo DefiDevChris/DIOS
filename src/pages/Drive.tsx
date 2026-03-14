@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { HardDrive, FolderOpen, ExternalLink, RefreshCw, AlertCircle, Loader, FileText, Image, FileSpreadsheet, File } from 'lucide-react';
+import { HardDrive, FolderOpen, ExternalLink, RefreshCw, AlertCircle, Loader, FileText, Image, FileSpreadsheet, File, Upload } from 'lucide-react';
 
 interface DriveFile {
   id: string;
@@ -31,7 +31,15 @@ export default function Drive() {
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
 
+  // Upload state
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+
+  const currentFolderId = folderStack.length > 0 ? folderStack[folderStack.length - 1].id : null;
 
   const listFolder = async (folderId: string, folderName: string) => {
     if (!token || token === 'dummy') return;
@@ -171,6 +179,87 @@ export default function Drive() {
     }
   };
 
+  const handleUploadToDrive = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !token || !currentFolderId) return;
+    e.target.value = '';
+
+    setUploading(true);
+    setUploadProgress(0);
+    setUploadError(null);
+
+    try {
+      // Build multipart/related body for Google Drive API upload
+      const boundary = `dios_upload_${Date.now()}`;
+      const metadata = JSON.stringify({
+        name: file.name,
+        parents: [currentFolderId],
+      });
+
+      // Read file as ArrayBuffer
+      const fileBuffer = await file.arrayBuffer();
+
+      // Construct multipart body
+      const encoder = new TextEncoder();
+      const metaPart = encoder.encode(
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`
+      );
+      const filePart = encoder.encode(
+        `--${boundary}\r\nContent-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`
+      );
+      const ending = encoder.encode(`\r\n--${boundary}--`);
+
+      const body = new Uint8Array(
+        metaPart.byteLength + filePart.byteLength + fileBuffer.byteLength + ending.byteLength
+      );
+      body.set(metaPart, 0);
+      body.set(filePart, metaPart.byteLength);
+      body.set(new Uint8Array(fileBuffer), metaPart.byteLength + filePart.byteLength);
+      body.set(ending, metaPart.byteLength + filePart.byteLength + fileBuffer.byteLength);
+
+      // Use XMLHttpRequest to track progress
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink');
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.setRequestHeader('Content-Type', `multipart/related; boundary=${boundary}`);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Drive upload failed: ${xhr.status} ${xhr.statusText}`));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error during Drive upload.'));
+        xhr.send(body);
+      });
+
+      // Refresh folder listing to show new file
+      const q = `'${currentFolderId}' in parents and trashed=false`;
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,modifiedTime,size,webViewLink)&orderBy=folder,name`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(data.files || []);
+      }
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
   const formatSize = (size?: string) => {
     if (!size) return '';
     const bytes = parseInt(size);
@@ -199,20 +288,72 @@ export default function Drive() {
             <p className="text-stone-500 text-sm mt-1">Browse your DIOS Master Inspections Database.</p>
           </div>
         </div>
-        <button
-          onClick={loadRoot}
-          disabled={loading}
-          className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
-        >
-          {loading ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          {initialized ? 'Refresh' : 'Load Drive Files'}
-        </button>
+        <div className="flex items-center gap-3">
+          {initialized && currentFolderId && (
+            <>
+              <input
+                ref={uploadInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleUploadToDrive}
+              />
+              <button
+                onClick={() => uploadInputRef.current?.click()}
+                disabled={uploading || !token}
+                className="px-4 py-2 bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
+              >
+                {uploading ? (
+                  <>
+                    <Loader size={16} className="animate-spin" />
+                    {uploadProgress}%
+                  </>
+                ) : (
+                  <>
+                    <Upload size={16} />
+                    Upload to Drive
+                  </>
+                )}
+              </button>
+            </>
+          )}
+          <button
+            onClick={loadRoot}
+            disabled={loading}
+            className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
+          >
+            {loading ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            {initialized ? 'Refresh' : 'Load Drive Files'}
+          </button>
+        </div>
       </div>
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-3 text-red-700">
           <AlertCircle size={18} className="shrink-0 mt-0.5" />
           <span className="text-sm">{error}</span>
+        </div>
+      )}
+
+      {uploadError && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-3 text-red-700">
+          <AlertCircle size={18} className="shrink-0 mt-0.5" />
+          <span className="text-sm">Upload failed: {uploadError}</span>
+        </div>
+      )}
+
+      {/* Upload progress bar */}
+      {uploading && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm font-medium text-amber-800">Uploading to Drive…</span>
+            <span className="text-sm font-bold text-amber-700">{uploadProgress}%</span>
+          </div>
+          <div className="w-full bg-amber-100 rounded-full h-2">
+            <div
+              className="bg-[#D49A6A] h-2 rounded-full transition-all duration-200"
+              style={{ width: `${uploadProgress}%` }}
+            />
+          </div>
         </div>
       )}
 
@@ -276,7 +417,19 @@ export default function Drive() {
               <Loader size={24} className="animate-spin mr-3" /> Loading…
             </div>
           ) : files.length === 0 ? (
-            <div className="py-12 text-center text-stone-500 text-sm">This folder is empty.</div>
+            <div className="py-12 text-center">
+              <p className="text-stone-500 text-sm mb-4">This folder is empty.</p>
+              {currentFolderId && (
+                <button
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={uploading || !token}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#D49A6A]/10 hover:bg-[#D49A6A]/20 text-[#D49A6A] rounded-xl text-sm font-medium transition-colors"
+                >
+                  <Upload size={15} />
+                  Upload a file
+                </button>
+              )}
+            </div>
           ) : (
             <div className="divide-y divide-stone-50">
               {files.map(file => {
