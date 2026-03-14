@@ -36,6 +36,8 @@ interface Operation {
   name: string;
   agencyId: string;
   address: string;
+  lat?: number;
+  lng?: number;
 }
 
 interface Agency {
