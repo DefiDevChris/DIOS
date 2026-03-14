@@ -12,6 +12,7 @@ import NotesTasks from './pages/NotesTasks';
 import MobileHub from './pages/MobileHub';
 import Schedule from './pages/Schedule';
 import Expenses from './pages/Expenses';
+import Email from './pages/Email';
 import SetupWizard from './components/SetupWizard';
 import { configStore } from './lib/configStore';
 import { useState, useEffect } from 'react';
@@ -85,7 +86,7 @@ export default function App() {
             <Route path="schedule" element={<Schedule />} />
             
             <Route path="notes" element={<NotesTasks />} />
-            <Route path="email" element={<Placeholder title="Email" />} />
+            <Route path="email" element={<Email />} />
             <Route path="routing" element={<Routing />} />
             <Route path="reports" element={<Placeholder title="Reports" />} />
             
