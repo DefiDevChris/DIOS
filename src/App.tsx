@@ -17,6 +17,9 @@ import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
 import Expenses from './pages/Expenses';
 import Email from './pages/Email';
+import Insights from './pages/Insights';
+import Drive from './pages/Drive';
+import Sheets from './pages/Sheets';
 import SetupWizard from './components/SetupWizard';
 import ReceiptScanner from './components/ReceiptScanner';
 import { configStore } from './lib/configStore';
@@ -95,7 +98,6 @@ export default function App() {
             <Route path="inspections" element={<Inspections />} />
             <Route path="inspections/:id" element={<InspectionProfile />} />
             <Route path="invoices" element={<Invoices />} />
-            <Route path="invoices" element={<Placeholder title="Invoices" />} />
             <Route path="expenses" element={<Expenses />} />
             <Route path="schedule" element={<Schedule />} />
             
@@ -104,10 +106,10 @@ export default function App() {
             <Route path="routing" element={<Routing />} />
             <Route path="reports" element={<Reports />} />
             
-            <Route path="insights" element={<Placeholder title="Insights" />} />
-            
-            <Route path="drive" element={<Placeholder title="Google Drive" />} />
-            <Route path="sheets" element={<Placeholder title="Google Sheets" />} />
+            <Route path="insights" element={<Insights />} />
+
+            <Route path="drive" element={<Drive />} />
+            <Route path="sheets" element={<Sheets />} />
             
             <Route path="settings" element={<Settings />} />
           </Route>

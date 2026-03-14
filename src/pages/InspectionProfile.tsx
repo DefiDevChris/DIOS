@@ -9,6 +9,8 @@ import {
   MapPin, Building2, Save, Car, Link2, Search, X, DollarSign
 } from 'lucide-react';
 import { generateInvoicePdf, InvoiceData } from '../lib/pdfGenerator';
+import { queueFile } from '../lib/syncQueue';
+import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 import { format } from 'date-fns';
 
 interface Inspection {
@@ -70,7 +72,8 @@ import TasksWidget from '../components/TasksWidget';
 export default function InspectionProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, googleAccessToken } = useAuth();
+  const { triggerSync } = useBackgroundSync();
   
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [operation, setOperation] = useState<Operation | null>(null);
@@ -357,33 +360,21 @@ export default function InspectionProfile() {
         URL.revokeObjectURL(url);
       }
 
-      // Save to Firestore
-      // 3. Attempt Google Drive Upload (Silently fail if dummy or unauthorized)
+      // 3. Queue PDF for upload to Reports/{YYYY} in Google Drive (and mirror locally)
       try {
-        const token = localStorage.getItem('googleAccessToken');
+        const token = googleAccessToken || localStorage.getItem('googleAccessToken');
         if (token && token !== 'dummy') {
-          // Construct the multipart request
-          const metadata = {
-            name: fileName,
-            mimeType: 'application/pdf',
-            parents: ['appDataFolder'], // We don't have the explicit Reports folder ID here without more queries, fallback to appData or root
-          };
-
-          const form = new FormData();
-          form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-          form.append('file', pdfBlob);
-
-          await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            },
-            body: form
+          const year = new Date(inspection.date).getFullYear();
+          await queueFile(pdfBlob, {
+            fileName,
+            year,
+            uid: user.uid,
+            folderName: 'Reports',
           });
-          console.log("Successfully uploaded to Google Drive");
+          triggerSync();
         }
       } catch (err) {
-        console.warn("Google Drive upload skipped or failed:", err);
+        console.warn("Drive queue failed:", err);
       }
 
       // 4. Save to Firestore

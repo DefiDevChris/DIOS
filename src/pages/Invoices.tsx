@@ -1,11 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import {
+  collection, query, orderBy, onSnapshot, doc, updateDoc, getDoc, getDocs, where
+} from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
-import { Receipt, Calendar, Building2, ExternalLink } from 'lucide-react';
+import { Receipt, Calendar, Building2, ExternalLink, FileDown, Loader } from 'lucide-react';
 import { Link } from 'react-router';
 import { format } from 'date-fns';
+import { generateInvoicePdf, InvoiceData } from '../lib/pdfGenerator';
+import { queueFile } from '../lib/syncQueue';
+import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 
 interface InvoiceRecord {
   id: string;
@@ -21,10 +26,12 @@ interface InvoiceRecord {
 }
 
 export default function Invoices() {
-  const { user } = useAuth();
+  const { user, googleAccessToken } = useAuth();
+  const { triggerSync } = useBackgroundSync();
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'All' | 'Unpaid' | 'Paid'>('All');
+  const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -61,6 +68,127 @@ export default function Invoices() {
       });
     } catch (error) {
       console.error("Error updating invoice status", error);
+    }
+  };
+
+  const handleDownloadPdf = async (invoice: InvoiceRecord) => {
+    if (!user) return;
+    setGeneratingPdf(invoice.id);
+
+    try {
+      // 1. Fetch inspection data
+      const inspectionSnap = await getDoc(doc(db, `users/${user.uid}/inspections/${invoice.inspectionId}`));
+      const inspectionData = inspectionSnap.exists() ? inspectionSnap.data() : {};
+
+      // 2. Fetch agency data
+      let agencyData: Record<string, any> = {};
+      if (invoice.agencyId) {
+        const agencySnap = await getDoc(doc(db, `users/${user.uid}/agencies/${invoice.agencyId}`));
+        if (agencySnap.exists()) agencyData = agencySnap.data();
+      }
+
+      // 3. Fetch operation address
+      let operationAddress = '';
+      if (invoice.operationId) {
+        const opSnap = await getDoc(doc(db, `users/${user.uid}/operations/${invoice.operationId}`));
+        if (opSnap.exists()) operationAddress = opSnap.data().address || '';
+      }
+
+      // 4. Sum any linked expenses for meals totals
+      let linkedMeals = 0;
+      if (inspectionData.linkedExpenses && inspectionData.linkedExpenses.length > 0) {
+        const expSnap = await getDocs(
+          query(collection(db, `users/${user.uid}/expenses`), where('__name__', 'in', inspectionData.linkedExpenses.slice(0, 10)))
+        );
+        expSnap.forEach(d => { linkedMeals += d.data().amount || 0; });
+      }
+
+      // 5. Calculate invoice totals using the same logic as InspectionProfile
+      const baseHours = inspectionData.baseHoursLog || 0;
+      const additionalHours = inspectionData.additionalHoursLog || 0;
+      const milesDriven = inspectionData.milesDriven || 0;
+      const isBundled = inspectionData.isBundled || false;
+      const totalTripDriveTime = inspectionData.totalTripDriveTime || 0;
+      const totalTripStops = inspectionData.totalTripStops || 1;
+      const mealsAndExpenses = (inspectionData.mealsAndExpenses || 0) + linkedMeals;
+      const perDiemDays = inspectionData.perDiemDays || 0;
+      const customLineItemName = inspectionData.customLineItemName || '';
+      const customLineItemAmount = inspectionData.customLineItemAmount || 0;
+
+      const driveTime = isBundled && totalTripStops > 0
+        ? Math.round(totalTripDriveTime) / totalTripStops
+        : totalTripDriveTime;
+
+      const baseAmount = agencyData.flatRateBaseAmount || 0;
+      const additionalHourlyRate = agencyData.additionalHourlyRate || 0;
+      const travelRate = agencyData.travelTimeHourlyRate || additionalHourlyRate;
+      const mileageRate = agencyData.mileageRate || 0.67;
+      const perDiemRate = agencyData.perDiemRate || 0;
+
+      const calculatedTotal =
+        baseAmount +
+        additionalHours * additionalHourlyRate +
+        driveTime * travelRate +
+        milesDriven * mileageRate +
+        mealsAndExpenses +
+        perDiemDays * perDiemRate +
+        customLineItemAmount;
+
+      const invoiceData: InvoiceData = {
+        invoiceNumber: `INV-${invoice.id.slice(0, 6).toUpperCase()}`,
+        date: invoice.date ? format(new Date(invoice.date), 'MMM d, yyyy') : format(new Date(), 'MMM d, yyyy'),
+        operationName: invoice.operationName,
+        operationAddress,
+        agencyName: invoice.agencyName,
+        baseAmount,
+        baseHours: agencyData.flatRateIncludedHours || baseHours,
+        additionalHours,
+        additionalHourlyRate,
+        driveTime,
+        travelRate,
+        milesDriven,
+        mileageRate,
+        mealsAndExpenses,
+        perDiemDays,
+        perDiemRate,
+        customLineItemName,
+        customLineItemAmount,
+        totalAmount: calculatedTotal || invoice.totalAmount,
+        notes: inspectionData.invoiceNotes || '',
+      };
+
+      const pdfBlob = await generateInvoicePdf(invoiceData);
+      const year = invoice.date ? new Date(invoice.date).getFullYear() : new Date().getFullYear();
+      const fileName = `Invoice_${invoiceData.invoiceNumber}_${invoice.operationName.replace(/\s+/g, '_')}.pdf`;
+
+      // 6. Download locally
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // 7. Queue for Google Drive upload to Reports/{YYYY} folder
+      const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+      if (token && token !== 'dummy') {
+        await queueFile(pdfBlob, {
+          fileName,
+          year,
+          uid: user.uid,
+          folderName: 'Reports',
+          firestoreDocPath: `users/${user.uid}/invoices/${invoice.id}`,
+          firestoreField: 'pdfDriveId',
+        });
+        triggerSync();
+      }
+    } catch (error) {
+      console.error('Error generating invoice PDF:', error);
+      alert('Failed to generate invoice PDF.');
+    } finally {
+      setGeneratingPdf(null);
     }
   };
 
@@ -146,12 +274,26 @@ export default function Invoices() {
                         </button>
                       </td>
                       <td className="py-4 px-6 text-right">
-                        <Link
-                          to={`/inspections/${invoice.inspectionId}`}
-                          className="inline-flex items-center gap-1.5 text-sm font-medium text-[#D49A6A] hover:text-[#c28a5c] transition-colors bg-[#D49A6A]/10 px-3 py-1.5 rounded-lg hover:bg-[#D49A6A]/20"
-                        >
-                          View Source <ExternalLink size={14} />
-                        </Link>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleDownloadPdf(invoice)}
+                            disabled={generatingPdf === invoice.id}
+                            title="Download PDF"
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors bg-stone-100 px-3 py-1.5 rounded-lg hover:bg-stone-200 disabled:opacity-50"
+                          >
+                            {generatingPdf === invoice.id
+                              ? <Loader size={14} className="animate-spin" />
+                              : <FileDown size={14} />
+                            }
+                            PDF
+                          </button>
+                          <Link
+                            to={`/inspections/${invoice.inspectionId}`}
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-[#D49A6A] hover:text-[#c28a5c] transition-colors bg-[#D49A6A]/10 px-3 py-1.5 rounded-lg hover:bg-[#D49A6A]/20"
+                          >
+                            View Source <ExternalLink size={14} />
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ))
