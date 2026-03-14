@@ -180,9 +180,24 @@ service cloud.firestore {
              (!('inspectionId' in data) || (data.inspectionId is string && data.inspectionId.size() < 100));
     }
 
+    function isValidSystemConfig(data) {
+      return hasOnlyAllowedFields(['driveRootFolderId', 'driveUploadsFolderId', 'driveReceiptsFolderId', 'defaultMileageRate']) &&
+             (!('driveRootFolderId' in data) || (data.driveRootFolderId is string && data.driveRootFolderId.size() < 100)) &&
+             (!('driveUploadsFolderId' in data) || (data.driveUploadsFolderId is string && data.driveUploadsFolderId.size() < 100)) &&
+             (!('driveReceiptsFolderId' in data) || (data.driveReceiptsFolderId is string && data.driveReceiptsFolderId.size() < 100)) &&
+             (!('defaultMileageRate' in data) || (data.defaultMileageRate is number && data.defaultMileageRate >= 0));
+    }
+
     match /users/{userId} {
-      // Prevent reading/writing to the root user document unless we define it later
-      allow read, write: if false;
+      // Allow read/write for the user's main profile document
+      allow read, write: if isOwner(userId);
+
+      match /system_settings/config {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidSystemConfig(request.resource.data);
+        allow update: if isOwner(userId) && isValidSystemConfig(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
 
       match /agencies/{agencyId} {
         allow read: if isOwner(userId);
