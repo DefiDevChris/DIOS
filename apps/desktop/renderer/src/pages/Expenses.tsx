@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation } from 'react-router';
 import { Wallet, Plus, Trash2, FileText, Search, Link as LinkIcon, DollarSign, Camera, Upload, PenLine, X, FolderOpen } from 'lucide-react';
-import { logger } from '@dios/shared';
+import { logger, configStore } from '@dios/shared';
 import ReceiptScanner from '../components/ReceiptScanner';
 import { format } from 'date-fns';
 import Swal from 'sweetalert2';
@@ -20,10 +20,10 @@ type ReceiptMode = 'camera' | 'manual' | 'uploads' | 'local-upload' | null;
 export default function Expenses() {
   const { user, googleAccessToken, isLocalUser } = useAuth();
   const location = useLocation();
-  
+
   // Database hooks
   const { findAll: findAllExpenses, remove: removeExpense, save: saveExpense } = useDatabase<ExtendedExpense>({ table: 'expenses' });
-  
+
   const [expenses, setExpenses] = useState<ExtendedExpense[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -35,7 +35,7 @@ export default function Expenses() {
   const [assigningFileId, setAssigningFileId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user || isLocalUser) {
+    if (!user) {
       setLoading(false);
       return;
     }
@@ -58,7 +58,7 @@ export default function Expenses() {
     };
 
     fetchExpenses();
-  }, [user, isLocalUser, findAllExpenses]);
+  }, [user, findAllExpenses]);
 
   // Auto-open "Add Receipt" modal when navigated here with ?new=1
   useEffect(() => {
@@ -98,12 +98,12 @@ export default function Expenses() {
 
     try {
       // Get Drive folder from config stored in Firestore
-      const projectId = (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || '';
+      const projectId = configStore.getConfig()?.firebaseConfig?.projectId || '';
       const configRes = await fetch(
         `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${user.uid}/system_settings/config`,
         { headers: { Authorization: `Bearer ${await user.getIdToken()}` } }
       );
-      
+
       let folderId: string | undefined;
       if (configRes.ok) {
         const configData = await configRes.json();
@@ -129,6 +129,7 @@ export default function Expenses() {
     } catch (error) {
       logger.error('Failed to fetch unassigned uploads:', error);
       setUnassignedFiles([]);
+      Swal.fire({ text: 'Could not load uploads from Drive. Check your Google connection.', icon: 'warning' });
     } finally {
       setLoadingUploads(false);
     }
@@ -143,12 +144,12 @@ export default function Expenses() {
 
     try {
       // Get config
-      const projectId = (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || '';
+      const projectId = configStore.getConfig()?.firebaseConfig?.projectId || '';
       const configRes = await fetch(
         `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${user.uid}/system_settings/config`,
         { headers: { Authorization: `Bearer ${await user.getIdToken()}` } }
       );
-      
+
       let receiptsId: string | undefined;
       let unassignedId: string | undefined;
       if (configRes.ok) {
@@ -158,18 +159,33 @@ export default function Expenses() {
       }
 
       if (receiptsId && unassignedId && googleAccessToken) {
-        await fetch(
+        const moveResponse = await fetch(
           `https://www.googleapis.com/drive/v3/files/${file.id}?addParents=${receiptsId}&removeParents=${unassignedId}`,
           {
             method: 'PATCH',
             headers: { Authorization: `Bearer ${googleAccessToken}` },
           }
         );
+        if (!moveResponse.ok) {
+          const errorText = await moveResponse.text().catch(() => '');
+          throw new Error(`Failed to move file in Drive: ${moveResponse.status} ${errorText}`);
+        }
       }
+
+      // Prompt user for vendor name so the expense record isn't blank
+      const { value: vendor } = await Swal.fire({
+        title: 'Expense Details',
+        input: 'text',
+        inputLabel: 'Vendor name',
+        inputPlaceholder: 'e.g. Shell Gas Station',
+        showCancelButton: true,
+        inputValidator: (v) => (!v ? 'Please enter a vendor name' : null),
+      });
+      if (!vendor) return; // user cancelled
 
       await saveExpense({
         id: crypto.randomUUID(),
-        vendor: '',
+        vendor,
         amount: 0,
         date: new Date().toISOString().split('T')[0],
         notes: `From upload: ${file.name}`,
@@ -209,7 +225,7 @@ export default function Expenses() {
   if (loading) {
     return (
       <div className="flex-1 p-8 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#D49A6A]"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#d4a574]"></div>
       </div>
     );
   }
@@ -220,16 +236,16 @@ export default function Expenses() {
       {/* Header section */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight flex items-center gap-3">
-            <Wallet className="text-[#D49A6A]" size={32} />
+          <h1 className="font-serif-display text-[36px] font-semibold text-[#2a2420] tracking-tight flex items-center gap-3">
+            <Wallet className="text-[#d4a574]" size={32} />
             Expenses
           </h1>
-          <p className="mt-2 text-stone-500 text-sm">Track your receipts and field expenses.</p>
+          <p className="mt-2 text-[#8b7355] text-sm font-medium">Track your receipts and field expenses.</p>
         </div>
 
         <button
           onClick={() => setShowModeSelect(true)}
-          className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm active:scale-95"
+          className="luxury-btn text-white px-5 py-2.5 rounded-xl text-sm font-bold border-0 cursor-pointer flex items-center gap-2 transition-colors shadow-sm active:scale-95"
         >
           <Plus size={18} />
           Add Receipt
@@ -238,39 +254,39 @@ export default function Expenses() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex items-center gap-4">
+        <div className="luxury-card rounded-[24px] p-6 flex items-center gap-4">
           <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600">
             <DollarSign size={24} />
           </div>
           <div>
-            <p className="text-sm font-bold text-stone-500 uppercase tracking-wider">Total Expenses</p>
-            <p className="text-2xl font-black text-stone-900">${totalAmount.toFixed(2)}</p>
+            <p className="text-sm font-bold text-[#8b7355] uppercase tracking-wider">Total Expenses</p>
+            <p className="text-2xl font-black text-[#2a2420]">${totalAmount.toFixed(2)}</p>
           </div>
         </div>
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex items-center gap-4">
+        <div className="luxury-card rounded-[24px] p-6 flex items-center gap-4">
           <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
             <FileText size={24} />
           </div>
           <div>
-            <p className="text-sm font-bold text-stone-500 uppercase tracking-wider">Receipts</p>
-            <p className="text-2xl font-black text-stone-900">{filteredExpenses.length}</p>
+            <p className="text-sm font-bold text-[#8b7355] uppercase tracking-wider">Receipts</p>
+            <p className="text-2xl font-black text-[#2a2420]">{filteredExpenses.length}</p>
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden flex flex-col">
+      <div className="luxury-card rounded-[24px] overflow-hidden flex flex-col">
 
         {/* Toolbar */}
-        <div className="p-4 border-b border-stone-100 bg-stone-50/50 flex flex-col sm:flex-row gap-4 items-center justify-between">
+        <div className="p-4 border-b border-[rgba(212,165,116,0.12)] bg-[rgba(212,165,116,0.04)] flex flex-col sm:flex-row gap-4 items-center justify-between">
           <div className="relative w-full sm:w-96">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a89b8c]" size={18} />
             <input
               type="text"
               placeholder="Search vendors or notes..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white border border-stone-200 focus:border-[#D49A6A] focus:ring-2 focus:ring-[#D49A6A]/20 rounded-xl py-2 pl-10 pr-4 text-sm transition-all"
+              className="w-full luxury-input rounded-2xl py-2 pl-10 pr-4 text-sm outline-none"
             />
           </div>
         </div>
@@ -278,17 +294,17 @@ export default function Expenses() {
         {/* Expenses List */}
         {filteredExpenses.length === 0 ? (
           <div className="p-12 text-center flex flex-col items-center justify-center">
-            <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center mb-4 text-stone-400">
+            <div className="w-16 h-16 bg-[rgba(212,165,116,0.06)] rounded-full flex items-center justify-center mb-4 text-[#d4a574]">
               <Wallet size={32} />
             </div>
-            <h3 className="text-lg font-bold text-stone-900 mb-1">No expenses found</h3>
-            <p className="text-stone-500 text-sm max-w-sm mb-6">
+            <h3 className="text-lg font-bold text-[#2a2420] mb-1">No expenses found</h3>
+            <p className="text-[#8b7355] text-sm max-w-sm mb-6">
               {searchTerm ? "Try adjusting your search terms." : "You haven't added any expenses yet. Click 'Add Receipt' to get started."}
             </p>
             {!searchTerm && (
               <button
                 onClick={() => setShowModeSelect(true)}
-                className="text-[#D49A6A] font-medium hover:text-[#c28a5c] flex items-center gap-2"
+                className="text-[#d4a574] font-medium hover:text-[#c28a5c] flex items-center gap-2"
               >
                 <Plus size={18} /> Add your first receipt
               </button>
@@ -298,28 +314,28 @@ export default function Expenses() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-stone-50 border-b border-stone-100">
-                  <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider w-32">Date</th>
-                  <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider">Vendor</th>
-                  <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider">Notes</th>
-                  <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider text-right">Amount</th>
-                  <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider text-center w-24">Receipt</th>
-                  <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider text-center w-20">Actions</th>
+                <tr className="bg-[rgba(212,165,116,0.04)] border-b border-[rgba(212,165,116,0.12)]">
+                  <th className="px-6 py-4 text-xs font-bold text-[#8b7355] uppercase tracking-wider w-32">Date</th>
+                  <th className="px-6 py-4 text-xs font-bold text-[#8b7355] uppercase tracking-wider">Vendor</th>
+                  <th className="px-6 py-4 text-xs font-bold text-[#8b7355] uppercase tracking-wider">Notes</th>
+                  <th className="px-6 py-4 text-xs font-bold text-[#8b7355] uppercase tracking-wider text-right">Amount</th>
+                  <th className="px-6 py-4 text-xs font-bold text-[#8b7355] uppercase tracking-wider text-center w-24">Receipt</th>
+                  <th className="px-6 py-4 text-xs font-bold text-[#8b7355] uppercase tracking-wider text-center w-20">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-100">
+              <tbody className="divide-y divide-[rgba(212,165,116,0.12)]">
                 {filteredExpenses.map((expense) => (
-                  <tr key={expense.id} className="hover:bg-stone-50/50 transition-colors group">
-                    <td className="px-6 py-4 text-sm text-stone-600 whitespace-nowrap">
+                  <tr key={expense.id} className="hover:bg-[rgba(212,165,116,0.04)] transition-colors group">
+                    <td className="px-6 py-4 text-sm text-[#7a6b5a] whitespace-nowrap">
                       {expense.date ? format(new Date(expense.date), 'MMM d, yyyy') : 'N/A'}
                     </td>
-                    <td className="px-6 py-4 text-sm font-bold text-stone-900">
+                    <td className="px-6 py-4 text-sm font-bold text-[#2a2420]">
                       {expense.vendor || 'Unknown Vendor'}
                     </td>
-                    <td className="px-6 py-4 text-sm text-stone-500 max-w-xs truncate">
+                    <td className="px-6 py-4 text-sm text-[#8b7355] max-w-xs truncate">
                       {expense.notes || '-'}
                     </td>
-                    <td className="px-6 py-4 text-sm font-bold text-stone-900 text-right">
+                    <td className="px-6 py-4 text-sm font-bold text-[#2a2420] text-right">
                       ${expense.amount?.toFixed(2) || '0.00'}
                     </td>
                     <td className="px-6 py-4 text-sm text-center">
@@ -330,13 +346,13 @@ export default function Expenses() {
                           </span>
                         </div>
                       ) : (
-                        <span className="text-stone-300">-</span>
+                        <span className="text-[#a89b8c]">-</span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm text-center">
                       <button
                         onClick={() => setExpenseToDelete(expense.id)}
-                        className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        className="p-1.5 text-[#a89b8c] hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                         title="Delete expense"
                       >
                         <Trash2 size={16} />
@@ -352,64 +368,64 @@ export default function Expenses() {
 
       {/* Receipt Mode Selection Modal */}
       {showModeSelect && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-stone-100">
-              <h2 className="text-lg font-bold text-stone-900">Add Receipt</h2>
-              <button onClick={() => setShowModeSelect(false)} className="text-stone-400 hover:text-stone-600 transition-colors p-1">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 luxury-modal-backdrop animate-in fade-in duration-200">
+          <div className="luxury-modal-card rounded-[28px] w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-[rgba(212,165,116,0.12)]">
+              <h2 className="text-lg font-bold text-[#2a2420]">Add Receipt</h2>
+              <button onClick={() => setShowModeSelect(false)} className="text-[#a89b8c] hover:text-[#7a6b5a] transition-colors p-1">
                 <X size={20} />
               </button>
             </div>
             <div className="p-4 space-y-3">
               <button
                 onClick={() => { setShowModeSelect(false); setReceiptMode('uploads'); fetchUnassignedUploads(); }}
-                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-stone-200 hover:border-[#D49A6A] hover:bg-[#D49A6A]/5 transition-all group text-left"
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-[rgba(212,165,116,0.15)] hover:border-[#d4a574] hover:bg-[#d4a574]/5 transition-all group text-left"
               >
                 <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500 group-hover:bg-blue-100 transition-colors shrink-0">
                   <FolderOpen size={24} />
                 </div>
                 <div>
-                  <p className="font-bold text-stone-900 text-sm">Choose from Uploads</p>
-                  <p className="text-xs text-stone-500 mt-0.5">Pick from unassigned uploads in Google Drive</p>
+                  <p className="font-bold text-[#2a2420] text-sm">Choose from Uploads</p>
+                  <p className="text-xs text-[#8b7355] mt-0.5">Pick from unassigned uploads in Google Drive</p>
                 </div>
               </button>
 
               <button
                 onClick={() => { setShowModeSelect(false); setReceiptMode('local-upload'); }}
-                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-stone-200 hover:border-[#D49A6A] hover:bg-[#D49A6A]/5 transition-all group text-left"
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-[rgba(212,165,116,0.15)] hover:border-[#d4a574] hover:bg-[#d4a574]/5 transition-all group text-left"
               >
                 <div className="w-12 h-12 bg-violet-50 rounded-xl flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors shrink-0">
                   <Upload size={24} />
                 </div>
                 <div>
-                  <p className="font-bold text-stone-900 text-sm">Upload from Computer</p>
-                  <p className="text-xs text-stone-500 mt-0.5">Select a receipt image or PDF from your local files</p>
+                  <p className="font-bold text-[#2a2420] text-sm">Upload from Computer</p>
+                  <p className="text-xs text-[#8b7355] mt-0.5">Select a receipt image or PDF from your local files</p>
                 </div>
               </button>
 
               <button
                 onClick={() => { setShowModeSelect(false); setReceiptMode('camera'); }}
-                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-stone-200 hover:border-[#D49A6A] hover:bg-[#D49A6A]/5 transition-all group text-left"
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-[rgba(212,165,116,0.15)] hover:border-[#d4a574] hover:bg-[#d4a574]/5 transition-all group text-left"
               >
                 <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600 group-hover:bg-emerald-100 transition-colors shrink-0">
                   <Camera size={24} />
                 </div>
                 <div>
-                  <p className="font-bold text-stone-900 text-sm">Capture New Receipt</p>
-                  <p className="text-xs text-stone-500 mt-0.5">Take a photo — OCR will auto-fill the form</p>
+                  <p className="font-bold text-[#2a2420] text-sm">Capture New Receipt</p>
+                  <p className="text-xs text-[#8b7355] mt-0.5">Take a photo — OCR will auto-fill the form</p>
                 </div>
               </button>
 
               <button
                 onClick={() => { setShowModeSelect(false); setReceiptMode('manual'); }}
-                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-stone-200 hover:border-[#D49A6A] hover:bg-[#D49A6A]/5 transition-all group text-left"
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-[rgba(212,165,116,0.15)] hover:border-[#d4a574] hover:bg-[#d4a574]/5 transition-all group text-left"
               >
-                <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-[#D49A6A] group-hover:bg-amber-100 transition-colors shrink-0">
+                <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-[#d4a574] group-hover:bg-amber-100 transition-colors shrink-0">
                   <PenLine size={24} />
                 </div>
                 <div>
-                  <p className="font-bold text-stone-900 text-sm">Add Manually</p>
-                  <p className="text-xs text-stone-500 mt-0.5">Enter the details by hand without a photo</p>
+                  <p className="font-bold text-[#2a2420] text-sm">Add Manually</p>
+                  <p className="text-xs text-[#8b7355] mt-0.5">Enter the details by hand without a photo</p>
                 </div>
               </button>
             </div>
@@ -419,22 +435,22 @@ export default function Expenses() {
 
       {/* Delete Confirmation Modal */}
       {expenseToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 luxury-modal-backdrop animate-in fade-in duration-200">
+          <div className="luxury-modal-card rounded-[28px] w-full max-w-sm overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
             <div className="p-6">
               <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mb-4">
                 <Trash2 size={24} className="text-red-500" />
               </div>
-              <h2 className="text-xl font-bold text-stone-900 mb-2">Delete Expense?</h2>
-              <p className="text-sm text-stone-500">
+              <h2 className="text-xl font-bold text-[#2a2420] mb-2">Delete Expense?</h2>
+              <p className="text-sm text-[#8b7355]">
                 Are you sure you want to delete this expense? This action cannot be undone.
               </p>
             </div>
-            <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-end gap-3 shrink-0">
+            <div className="px-6 py-4 border-t border-[rgba(212,165,116,0.12)] flex justify-end gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => setExpenseToDelete(null)}
-                className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-200/50 rounded-xl transition-colors"
+                className="px-4 py-2 text-sm font-medium text-[#7a6b5a] hover:text-[#2a2420] hover:bg-[rgba(212,165,116,0.06)] rounded-xl transition-colors"
               >
                 Cancel
               </button>
@@ -470,9 +486,9 @@ export default function Expenses() {
 
       {/* Unassigned Uploads Modal */}
       {receiptMode === 'uploads' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-200">
-            <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-[#D49A6A] text-white shrink-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 luxury-modal-backdrop animate-in fade-in duration-200">
+          <div className="luxury-modal-card rounded-[28px] w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-[rgba(212,165,116,0.12)] flex items-center justify-between bg-[#d4a574] text-white shrink-0">
               <div className="flex items-center gap-2">
                 <FolderOpen size={20} />
                 <h2 className="font-bold tracking-wide text-sm uppercase">Unassigned Uploads</h2>
@@ -484,23 +500,23 @@ export default function Expenses() {
             <div className="flex-1 overflow-y-auto">
               {loadingUploads ? (
                 <div className="p-8 flex flex-col items-center text-center">
-                  <div className="w-8 h-8 border-2 border-[#D49A6A] border-t-transparent rounded-full animate-spin mb-4" />
-                  <p className="text-sm text-stone-500">Loading uploads from Drive...</p>
+                  <div className="w-8 h-8 border-2 border-[#d4a574] border-t-transparent rounded-full animate-spin mb-4" />
+                  <p className="text-sm text-[#8b7355]">Loading uploads from Drive...</p>
                 </div>
               ) : unassignedFiles.length === 0 ? (
                 <div className="p-8 flex flex-col items-center text-center">
-                  <div className="w-16 h-16 bg-stone-50 rounded-full flex items-center justify-center mb-4 text-stone-300">
+                  <div className="w-16 h-16 bg-[rgba(212,165,116,0.04)] rounded-full flex items-center justify-center mb-4 text-[#d4a574]">
                     <Upload size={32} />
                   </div>
-                  <h3 className="text-lg font-bold text-stone-900 mb-2">No Unassigned Uploads</h3>
-                  <p className="text-sm text-stone-500 max-w-sm">
+                  <h3 className="text-lg font-bold text-[#2a2420] mb-2">No Unassigned Uploads</h3>
+                  <p className="text-sm text-[#8b7355] max-w-sm">
                     Upload receipt photos from your phone to the "Unassigned Uploads" folder in Google Drive, then come back here to assign them.
                   </p>
                 </div>
               ) : (
-                <div className="divide-y divide-stone-100">
+                <div className="divide-y divide-[rgba(212,165,116,0.12)]">
                   {unassignedFiles.map((file) => (
-                    <div key={file.id} className="flex items-center justify-between p-4 hover:bg-stone-50 transition-colors">
+                    <div key={file.id} className="flex items-center justify-between p-4 hover:bg-[rgba(212,165,116,0.04)] transition-colors">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
                           file.mimeType.includes('image') ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
@@ -508,8 +524,8 @@ export default function Expenses() {
                           <FileText size={18} />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-stone-900 truncate">{file.name}</p>
-                          <p className="text-[10px] text-stone-500">
+                          <p className="text-sm font-medium text-[#2a2420] truncate">{file.name}</p>
+                          <p className="text-[10px] text-[#8b7355]">
                             {new Date(file.createdTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </p>
                         </div>
@@ -517,7 +533,7 @@ export default function Expenses() {
                       <button
                         onClick={() => assignFileAsReceipt(file)}
                         disabled={assigningFileId === file.id}
-                        className="shrink-0 ml-3 px-3 py-1.5 rounded-lg text-xs font-bold text-[#D49A6A] bg-[#D49A6A]/10 hover:bg-[#D49A6A]/20 transition-colors disabled:opacity-50"
+                        className="shrink-0 ml-3 px-3 py-1.5 rounded-lg text-xs font-bold text-[#d4a574] bg-[#d4a574]/10 hover:bg-[#d4a574]/20 transition-colors disabled:opacity-50"
                       >
                         {assigningFileId === file.id ? 'Assigning...' : 'Assign'}
                       </button>

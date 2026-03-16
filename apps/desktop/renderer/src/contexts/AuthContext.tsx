@@ -24,12 +24,18 @@ declare global {
         upsert: (table: string, record: Record<string, unknown>) => Promise<{ success: boolean }>
         remove: (table: string, id: string) => Promise<{ success: boolean }>
       }
+      env?: {
+        load: () => Promise<Record<string, string>>
+        save: (vars: Record<string, string>) => Promise<{ success: boolean }>
+        getPath: () => Promise<string>
+      }
       fs?: {
         saveFile: (pathSegments: string[], fileName: string, data: ArrayBuffer) => Promise<string>
         readFile: (filePath: string) => Promise<ArrayBuffer | null>
         deleteFile: (filePath: string) => Promise<boolean>
         listFiles: (pathSegments: string[]) => Promise<string[]>
         getBaseDir: () => Promise<string>
+        selectFolder: () => Promise<string | null>
       }
       sync?: {
         start: (config?: { firestoreToken: string; driveToken: string; userId: string; projectId: string }) => Promise<{ success: boolean }>
@@ -38,8 +44,8 @@ declare global {
         getPendingCount: () => Promise<number>
       }
       config?: {
-        setSyncConfig: (config: { firestoreToken: string; driveToken: string; userId: string; projectId: string }) => Promise<{ success: boolean }>
-        getSyncConfig: () => Promise<{ firestoreToken: string; driveToken: string; userId: string; projectId: string } | null>
+        setSyncConfig: (config: { firestoreToken: string; driveToken: string; userId: string; projectId: string; refreshToken?: string; apiKey?: string }) => Promise<{ success: boolean }>
+        getSyncConfig: () => Promise<{ firestoreToken: string; driveToken: string; userId: string; projectId: string; refreshToken?: string; apiKey?: string } | null>
         clearSyncConfig: () => Promise<{ success: boolean }>
       }
     }
@@ -56,6 +62,7 @@ interface AuthContextType {
   googleAccessToken: string | null;
   loading: boolean;
   isLocalUser: boolean;
+  gisLoadError: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshGoogleToken: () => Promise<string>;
@@ -76,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
   const [loading, setLoading] = useState(true);
   const [isLocalUser, setIsLocalUser] = useState(false);
+  const [gisLoadError, setGisLoadError] = useState(false);
 
   // Holds the GIS TokenClient instance once initialized
   const tokenClientRef = useRef<GisTokenClient | null>(null);
@@ -136,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Attempt to initialise the token client once the GIS SDK is ready
   useEffect(() => {
     const tryInit = () => {
-      const clientId = configStore.getConfig()?.googleOAuthClientId;
+      const clientId = configStore.getOAuthClientId();
       const gisOAuth2 = (window.google?.accounts as GisAccounts | undefined)?.oauth2;
       if (clientId && gisOAuth2) {
         initTokenClient(clientId);
@@ -159,6 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else if (attempts >= maxAttempts) {
           // Timeout: stop polling to prevent infinite loop
           clearInterval(interval);
+          setGisLoadError(true);
           logger.warn('GIS SDK failed to load within timeout period');
         }
       }, 500);
@@ -275,20 +284,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (token) {
         storeToken(token);
         // Initialise GIS token client now that we have the user's hint for silent refreshes
-        const clientId = configStore.getConfig()?.googleOAuthClientId;
+        const clientId = configStore.getOAuthClientId();
         if (clientId) initTokenClient(clientId);
 
         // Push config to Electron main process for sync engine
         if (isElectron() && window.electronAPI?.config) {
           try {
             const firestoreToken = await user.getIdToken();
-            const projectId = configStore.getConfig()?.firebaseConfig?.projectId;
+            const appConfig = configStore.getConfig();
+            const projectId = appConfig?.firebaseConfig?.projectId;
+            const apiKey = appConfig?.firebaseConfig?.apiKey;
             if (projectId) {
+              // stsTokenManager is internal Firebase SDK — access refresh token for main process
+              const refreshToken = (user as any).stsTokenManager?.refreshToken ?? (user as any)._delegate?.stsTokenManager?.refreshToken;
               await window.electronAPI.config.setSyncConfig({
                 firestoreToken,
                 driveToken: token,
                 userId: user.uid,
                 projectId,
+                ...(refreshToken && apiKey ? { refreshToken, apiKey } : {}),
               });
               logger.info('Sync config pushed to main process for user:', user.uid);
             }
@@ -342,6 +356,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     googleAccessToken,
     loading,
     isLocalUser,
+    gisLoadError,
     signInWithGoogle,
     signOut,
     refreshGoogleToken,
@@ -352,7 +367,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#faf8f5' }}>
+          <div style={{ width: 32, height: 32, border: '3px solid rgba(212,165,116,0.2)', borderTopColor: '#d4a574', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+        </div>
+      ) : children}
     </AuthContext.Provider>
   );
 }

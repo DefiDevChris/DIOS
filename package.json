@@ -17,7 +17,9 @@
     "clean": "npm run clean -w apps/desktop && npm run clean -w apps/mobile",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "deploy:firebase": "firebase deploy --only firestore:rules,storage:rules",
+    "deploy:mobile": "npm run build:mobile && firebase deploy --only hosting"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

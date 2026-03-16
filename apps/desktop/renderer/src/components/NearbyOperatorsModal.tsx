@@ -79,16 +79,16 @@ export default function NearbyOperatorsModal({
   const hasLocation = currentOperation.lat != null && currentOperation.lng != null;
 
   return (
-    <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
-        <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center bg-stone-50/50 shrink-0">
+    <div className="luxury-modal-backdrop flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="luxury-modal-card rounded-[28px] w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
+        <div className="px-6 py-4 border-b border-[rgba(212,165,116,0.15)] flex justify-between items-center shrink-0">
           <div>
-            <h2 className="text-lg font-bold text-stone-900">Nearby Operators</h2>
-            <p className="text-xs text-stone-500 mt-0.5">Sorted by straight-line distance</p>
+            <h2 className="font-serif-display text-xl font-semibold text-[#2a2420]">Nearby Operators</h2>
+            <p className="font-body text-xs text-[#a89b8c] mt-0.5">Sorted by straight-line distance</p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-100 transition-colors"
+            className="p-2 text-[#a89b8c] hover:text-[#2a2420] rounded-lg transition-colors"
           >
             <X size={20} />
           </button>
@@ -96,12 +96,12 @@ export default function NearbyOperatorsModal({
 
         <div className="overflow-y-auto flex-1">
           {!hasLocation ? (
-            <div className="p-8 text-center text-stone-500 text-sm">
-              <MapPin size={32} className="mx-auto mb-3 text-stone-300" />
+            <div className="p-8 text-center text-[#a89b8c] font-body text-sm">
+              <MapPin size={32} className="mx-auto mb-3 text-[#d4a574]" />
               Current operation location not set. Geocode the address first.
             </div>
           ) : sorted.length === 0 ? (
-            <div className="p-8 text-center text-stone-500 text-sm">
+            <div className="p-8 text-center text-[#a89b8c] font-body text-sm">
               No nearby operators with known locations.
             </div>
           ) : (
@@ -116,10 +116,10 @@ export default function NearbyOperatorsModal({
                     onClose();
                     navigate(`/operations/${op.id}`);
                   }}
-                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-stone-50 cursor-pointer transition-colors border-b border-stone-100 last:border-0 text-left"
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-[rgba(212,165,116,0.06)] cursor-pointer transition-colors border-b border-[rgba(212,165,116,0.15)] last:border-0 text-left"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-stone-900 text-sm truncate">{op.name}</div>
+                    <div className="font-body font-medium text-[#2a2420] text-sm truncate">{op.name}</div>
                     <div className="flex items-center gap-2 mt-1">
                       <span
                         className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${BADGE_COLORS[colorIndex]}`}
@@ -129,10 +129,10 @@ export default function NearbyOperatorsModal({
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-sm font-medium text-stone-900">
+                    <div className="text-sm font-medium text-[#2a2420]">
                       {op.distance.toFixed(1)} mi
                     </div>
-                    <div className="text-xs text-stone-400">{formatEstDrive(op.distance)}</div>
+                    <div className="text-xs text-[#a89b8c]">{formatEstDrive(op.distance)}</div>
                   </div>
                 </button>
               );

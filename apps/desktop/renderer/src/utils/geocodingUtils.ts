@@ -1,4 +1,4 @@
-import { configStore, logger } from '@dios/shared';
+import { logger } from '@dios/shared';
 
 export interface Coordinates {
   lat: number;
@@ -6,22 +6,24 @@ export interface Coordinates {
 }
 
 /**
- * Geocodes an address using the Google Maps REST Geocoding API.
- * Does not require the Maps JS SDK to be loaded, making it safe to call
- * from any context (e.g., on operation save in the background).
+ * Geocodes an address using the Nominatim (OpenStreetMap) API.
+ * No API key required. Respects Nominatim usage policy with a
+ * descriptive User-Agent header.
  */
 export async function geocodeAddress(address: string): Promise<Coordinates | null> {
-  const apiKey = configStore.getConfig()?.googleMapsApiKey;
-  if (!apiKey || !address.trim()) return null;
+  if (!address.trim()) return null;
 
   try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
-    const response = await fetch(url);
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'DIOS-Studio/1.0' },
+    });
+    if (!response.ok) return null;
     const data = await response.json();
 
-    if (data.status === 'OK' && data.results?.[0]) {
-      const location = data.results[0].geometry.location;
-      return { lat: location.lat, lng: location.lng };
+    if (Array.isArray(data) && data.length > 0) {
+      const result = data[0];
+      return { lat: parseFloat(result.lat), lng: parseFloat(result.lon) };
     }
   } catch (error) {
     logger.error(`Geocoding error for address "${address}":`, error);
@@ -31,29 +33,12 @@ export async function geocodeAddress(address: string): Promise<Coordinates | nul
 }
 
 /**
- * Geocodes a single operation's address and returns the resulting coordinates.
- * Pages should call this and then use their own save function from useDatabase
- * to persist the coordinates to the database.
- * 
- * @returns Coordinates if geocoding succeeds, null otherwise
- */
-export async function geocodeAndSaveOperation(
-  _userId: string,
-  _operationId: string,
-  _address: string
-): Promise<void> {
-  // DEPRECATED: This function is kept for backward compatibility.
-  // New code should use geocodeAddress() directly and save via useDatabase.
-  logger.warn('[geocodingUtils] geocodeAndSaveOperation is deprecated. Use geocodeAddress() with useDatabase.save() instead.');
-}
-
-/**
  * Processes a list of operations that are missing lat/lng coordinates,
  * geocoding each one and returning the results.
- * 
+ *
  * NOTE: This function no longer saves to Firestore directly. The caller
  * is responsible for persisting coordinates using their save function from useDatabase.
- * 
+ *
  * @returns Array of operation IDs with their coordinates
  */
 export async function geocodeMissingOperations(
@@ -67,9 +52,9 @@ export async function geocodeMissingOperations(
       const coords = await geocodeAddress(op.address);
       if (coords) {
         results.push({ id: op.id, ...coords });
-        // Small delay to avoid hitting geocoding rate limits
-        await new Promise(resolve => setTimeout(resolve, 300));
       }
+      // Nominatim rate limit: max 1 request per second (always delay, not just on success)
+      await new Promise(resolve => setTimeout(resolve, 1100));
     }
   }
 

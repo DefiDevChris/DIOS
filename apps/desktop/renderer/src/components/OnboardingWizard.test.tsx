@@ -4,14 +4,12 @@ vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { uid: 'test-uid' }, googleAccessToken: 'test-token', loading: false }),
 }))
 
-vi.mock('@dios/shared/firebase', () => ({
-  db: {},
+vi.mock('../hooks/useDatabase', () => ({
+  useDatabase: () => ({ save: vi.fn().mockResolvedValue(undefined), findAll: vi.fn().mockResolvedValue([]) }),
 }))
 
-vi.mock('firebase/firestore', () => ({
-  collection: vi.fn(),
-  doc: vi.fn(() => ({ id: 'mock-id' })),
-  setDoc: vi.fn(),
+vi.mock('../utils/systemConfig', () => ({
+  saveSystemConfig: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../utils/geocodingUtils', () => ({
@@ -19,7 +17,7 @@ vi.mock('../utils/geocodingUtils', () => ({
 }))
 
 vi.mock('@dios/shared', () => ({
-  logger: { error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  logger: { error: vi.fn(), warn: vi.fn(), debug: vi.fn(), info: vi.fn() },
 }))
 
 vi.mock('sweetalert2', () => ({
@@ -30,10 +28,8 @@ vi.mock('./RateConfigSection', () => ({
   default: () => <div data-testid="rate-config-section">RateConfigSection</div>,
 }))
 
-vi.mock('./SignatureEditor', () => ({
-  default: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <textarea data-testid="signature-editor" value={value} onChange={(e) => onChange(e.target.value)} />
-  ),
+vi.mock('./LeafLogo', () => ({
+  default: () => <div data-testid="leaf-logo" />,
 }))
 
 import OnboardingWizard from './OnboardingWizard'
@@ -53,38 +49,33 @@ describe('OnboardingWizard', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('renders "Welcome to DIOS Studio" on step 0', () => {
+  it('renders welcome text on step 0', () => {
     render(<OnboardingWizard {...defaultProps} />)
-    expect(screen.getByText('Welcome to DIOS Studio')).toBeInTheDocument()
+    expect(screen.getByText(/Welcome to/)).toBeInTheDocument()
+    expect(screen.getByText(/DIOS Studio/)).toBeInTheDocument()
   })
 
-  it('renders "Step 1 of 5" text', () => {
-    render(<OnboardingWizard {...defaultProps} />)
-    expect(screen.getByText('Step 1 of 5')).toBeInTheDocument()
-  })
-
-  it('Next button advances to step 1 ("Your Address")', () => {
+  it('Next button advances to step 1 (address step)', () => {
     render(<OnboardingWizard {...defaultProps} />)
     fireEvent.click(screen.getByText('Next'))
-    expect(screen.getByText('Your Address')).toBeInTheDocument()
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expect(screen.getByText('Street Address')).toBeInTheDocument()
   })
 
   it('Back button goes back to step 0', () => {
     render(<OnboardingWizard {...defaultProps} />)
     fireEvent.click(screen.getByText('Next'))
-    expect(screen.getByText('Your Address')).toBeInTheDocument()
+    expect(screen.getByText('Street Address')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Back'))
-    expect(screen.getByText('Welcome to DIOS Studio')).toBeInTheDocument()
-    expect(screen.getByText('Step 1 of 5')).toBeInTheDocument()
+    expect(screen.getByText(/Welcome to/)).toBeInTheDocument()
   })
 
-  it('Skip button jumps to step 4 ("All Set!")', () => {
+  it('Skip button on step 1 advances to step 2', () => {
     render(<OnboardingWizard {...defaultProps} />)
+    fireEvent.click(screen.getByText('Next')) // step 1
+    expect(screen.getByText('Street Address')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Skip'))
-    expect(screen.getByText('All Set!')).toBeInTheDocument()
-    expect(screen.getByText('Step 5 of 5')).toBeInTheDocument()
+    expect(screen.getByText('Agency Name')).toBeInTheDocument()
   })
 
   it('Step 0 has Business Name, Your Name, Title inputs', () => {
@@ -104,11 +95,12 @@ describe('OnboardingWizard', () => {
     expect(screen.getByText('ZIP')).toBeInTheDocument()
   })
 
-  it('Step 4 shows "All Set!" and "Get Started" button', () => {
+  it('Step 3 shows completion state and Get Started button', () => {
     render(<OnboardingWizard {...defaultProps} />)
-    fireEvent.click(screen.getByText('Skip'))
+    fireEvent.click(screen.getByText('Next')) // step 1
+    fireEvent.click(screen.getByText('Next')) // step 2
+    fireEvent.click(screen.getByText('Next')) // step 3
 
-    expect(screen.getByText('All Set!')).toBeInTheDocument()
-    expect(screen.getByText('Get Started')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Get Started/i })).toBeInTheDocument()
   })
 })

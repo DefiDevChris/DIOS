@@ -9,7 +9,6 @@ export interface FirebaseConfig {
 
 export interface AppConfig {
   firebaseConfig: FirebaseConfig
-  googleMapsApiKey: string
   googleOAuthClientId?: string
 }
 
@@ -223,6 +222,7 @@ export interface InvoiceLineItem {
   name: string
   amount: number
   details?: string
+  estimated?: boolean
 }
 
 export interface Note {

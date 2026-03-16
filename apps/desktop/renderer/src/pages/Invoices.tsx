@@ -2,15 +2,16 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
-import { Receipt, Calendar, Building2, ExternalLink, FileDown, Loader } from 'lucide-react';
-import { Link } from 'react-router';
+import { Receipt, Calendar, Building2, ExternalLink, FileDown, Loader, Mail, Cloud } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router';
 import { format } from 'date-fns';
 import { generateInvoicePdf } from '../lib/pdfGenerator';
 import type { InvoiceData } from '@dios/shared';
-import { queueFile } from '../lib/syncQueue';
-import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
+import { uploadToDrive } from '../lib/driveSync';
 import Swal from 'sweetalert2';
 import { useDatabase } from '../hooks/useDatabase';
+import { useSheetsSync } from '../hooks/useSheetsSync';
+import InvoiceEmailModal from '../components/InvoiceEmailModal';
 import type { Invoice, Inspection, Agency, Operation, Expense } from '@dios/shared/types';
 
 interface InvoiceRecord {
@@ -46,22 +47,41 @@ type ExtendedExpense = Expense & {
 
 export default function Invoices() {
   const { user, googleAccessToken } = useAuth();
-  const { triggerSync } = useBackgroundSync();
-  
+  const { syncInspection } = useSheetsSync();
+  const [searchParams, setSearchParams] = useSearchParams();
+
   // Database hooks
   const { findAll: findAllInvoices, save: saveInvoice } = useDatabase<Invoice>({ table: 'invoices' });
   const { findById: findInspectionById } = useDatabase<ExtendedInspection>({ table: 'inspections' });
   const { findById: findAgencyById } = useDatabase<ExtendedAgency>({ table: 'agencies' });
   const { findById: findOperationById } = useDatabase<Operation>({ table: 'operations' });
   const { findAll: findAllExpenses } = useDatabase<ExtendedExpense>({ table: 'expenses' });
-  
+
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'All' | 'Not Complete' | 'Sent' | 'Paid'>('All');
   const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
+  const [savingToDrive, setSavingToDrive] = useState<string | null>(null);
+  const [emailModal, setEmailModal] = useState<{
+    isOpen: boolean;
+    agency: Agency | null;
+    operation: Operation | null;
+    invoiceNumber: string;
+    totalAmount: number;
+    inspectionDate: string;
+    pdfBlob: Blob | null;
+  } | null>(null);
 
   const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState(currentYear);
+  // Read selectedYear from URL search params (synced with Layout's year selector)
+  const selectedYear = Number(searchParams.get('year')) || currentYear;
+  const setSelectedYear = (year: number) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('year', String(year));
+      return next;
+    });
+  };
 
   const filteredByYear = invoices.filter(inv => {
     if (inv.status === 'Paid' && inv.paidDate) {
@@ -138,6 +158,7 @@ export default function Invoices() {
       // Refresh invoices list
       const updatedInvoices = await findAllInvoices();
       setInvoices(updatedInvoices.map(doc => ({ id: doc.id, ...doc })) as InvoiceRecord[]);
+      syncInspection(invoice.inspectionId).catch(() => {});
     } catch (error) {
       logger.error('Error updating invoice status', error);
     }
@@ -199,14 +220,23 @@ export default function Invoices() {
         totalAmount = invoice.totalAmount || baseAmount;
       }
 
+      // Load business profile for PDF header
+      let bp: Record<string, unknown> = {};
+      try {
+        const { getSystemConfig } = await import('../utils/systemConfig');
+        bp = await getSystemConfig(user.uid);
+      } catch {
+        // system_settings may not exist yet
+      }
+
       const invoiceDataForPdf: InvoiceData = {
-        invoiceNumber: `INV-${invoice.id.slice(0, 6).toUpperCase()}`,
+        invoiceNumber: (invoice as any).invoiceNumber || `INV-${invoice.id.slice(0, 6).toUpperCase()}`,
         date: invoice.date ? format(new Date(invoice.date), 'MMM d, yyyy') : format(new Date(), 'MMM d, yyyy'),
-        businessName: '',
-        businessAddress: '',
-        businessPhone: '',
-        businessEmail: '',
-        ownerName: '',
+        businessName: (bp.businessName as string) ?? '',
+        businessAddress: (bp.businessAddress as string) ?? '',
+        businessPhone: (bp.businessPhone as string) ?? '',
+        businessEmail: (bp.businessEmail as string) ?? '',
+        ownerName: (bp.ownerName as string) ?? '',
         operationName: invoice.operationName,
         operationAddress,
         agencyName: invoice.agencyName,
@@ -217,7 +247,6 @@ export default function Invoices() {
       };
 
       const pdfBlob = generateInvoicePdf(invoiceDataForPdf);
-      const year = invoice.date ? new Date(invoice.date).getFullYear() : new Date().getFullYear();
       const fileName = `Invoice_${invoiceDataForPdf.invoiceNumber}_${invoice.operationName.replace(/\s+/g, '_')}.pdf`;
 
       // 6. Download locally
@@ -229,25 +258,188 @@ export default function Invoices() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
-      // 7. Queue for Google Drive upload to Reports/{YYYY} folder
-      const token = googleAccessToken || localStorage.getItem('googleAccessToken');
-      if (token && token !== 'dummy') {
-        await queueFile(pdfBlob, {
-          fileName,
-          year,
-          uid: user.uid,
-          folderName: 'Reports',
-          firestoreDocPath: `users/${user.uid}/invoices/${invoice.id}`,
-          firestoreField: 'pdfDriveId',
-        });
-        triggerSync();
-      }
     } catch (error) {
       logger.error('Error generating invoice PDF:', error);
       Swal.fire({ text: 'Failed to generate invoice PDF.', icon: 'error' });
     } finally {
       setGeneratingPdf(null);
+    }
+  };
+
+  const handleEmailInvoice = async (invoice: InvoiceRecord) => {
+    if (!user) return;
+    setGeneratingPdf(invoice.id);
+    try {
+      const inspectionData = await findInspectionById(invoice.inspectionId);
+      const agencyData = invoice.agencyId ? await findAgencyById(invoice.agencyId) : null;
+      const operationData = invoice.operationId ? await findOperationById(invoice.operationId) : null;
+
+      let linkedMeals = 0;
+      const linkedExpenses = (inspectionData as any)?.linkedExpenses;
+      if (linkedExpenses?.length > 0) {
+        const allExpenses = await findAllExpenses();
+        linkedExpenses.slice(0, 10).forEach((expId: string) => {
+          const exp = allExpenses.find(e => e.id === expId);
+          if (exp) linkedMeals += exp.amount || 0;
+        });
+      }
+
+      let lineItems = [];
+      const inspectionLineItems = (inspectionData as any)?.lineItems;
+      if (inspectionLineItems) {
+        try { lineItems = JSON.parse(inspectionLineItems); } catch { lineItems = []; }
+      }
+      if (lineItems.length === 0 && agencyData) {
+        const baseAmount = (agencyData as any).flatRateAmount || 0;
+        if (baseAmount > 0) lineItems.push({ name: 'Inspection Fee', amount: baseAmount, details: '' });
+      }
+
+      // Load business profile for PDF header
+      let bpEmail: Record<string, unknown> = {};
+      try {
+        const { getSystemConfig } = await import('../utils/systemConfig');
+        bpEmail = await getSystemConfig(user.uid);
+      } catch {
+        // system_settings may not exist yet
+      }
+
+      const invoiceNumber = (invoice as any).invoiceNumber || `INV-${invoice.id.slice(0, 6).toUpperCase()}`;
+      const pdfBlob = generateInvoicePdf({
+        invoiceNumber,
+        date: invoice.date ? format(new Date(invoice.date), 'MMM d, yyyy') : format(new Date(), 'MMM d, yyyy'),
+        businessName: (bpEmail.businessName as string) ?? '',
+        businessAddress: (bpEmail.businessAddress as string) ?? '',
+        businessPhone: (bpEmail.businessPhone as string) ?? '',
+        businessEmail: (bpEmail.businessEmail as string) ?? '',
+        ownerName: (bpEmail.ownerName as string) ?? '',
+        operationName: invoice.operationName,
+        operationAddress: operationData?.address || '',
+        agencyName: invoice.agencyName,
+        agencyAddress: (agencyData as any)?.billingAddress || '',
+        lineItems,
+        totalAmount: invoice.totalAmount,
+        notes: (inspectionData as any)?.invoiceNotes || '',
+      });
+
+      setEmailModal({
+        isOpen: true,
+        agency: agencyData as Agency | null,
+        operation: operationData as Operation | null,
+        invoiceNumber,
+        totalAmount: invoice.totalAmount,
+        inspectionDate: invoice.inspectionDate || invoice.date,
+        pdfBlob,
+      });
+    } catch (error) {
+      logger.error('Error preparing invoice email:', error);
+      Swal.fire({ text: 'Failed to prepare invoice email.', icon: 'error' });
+    } finally {
+      setGeneratingPdf(null);
+    }
+  };
+
+  const handleEmailSent = async () => {
+    if (!emailModal) return;
+    const invoice = invoices.find(i =>
+      ((i as any).invoiceNumber && (i as any).invoiceNumber === emailModal.invoiceNumber) ||
+      `INV-${i.id.slice(0, 6).toUpperCase()}` === emailModal.invoiceNumber
+    );
+    if (invoice && invoice.status === 'Not Complete') {
+      try {
+        await saveInvoice({
+          ...invoice,
+          status: 'Sent',
+          sentDate: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          syncStatus: 'pending',
+        } as any);
+        const updated = await findAllInvoices();
+        setInvoices(updated.map(doc => ({ id: doc.id, ...doc })) as InvoiceRecord[]);
+        syncInspection(invoice.inspectionId).catch(() => {});
+      } catch (error) {
+        logger.error('Error updating invoice status after email:', error);
+      }
+    }
+    setEmailModal(null);
+  };
+
+  const handleSaveToDrive = async (invoice: InvoiceRecord) => {
+    if (!user) return;
+    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    if (!token) {
+      Swal.fire({ text: 'Sign in with Google to save to Drive.', icon: 'info' });
+      return;
+    }
+    setSavingToDrive(invoice.id);
+    try {
+      const inspectionData = await findInspectionById(invoice.inspectionId) || {};
+      let agencyData: Record<string, any> = {};
+      if (invoice.agencyId) {
+        const agency = await findAgencyById(invoice.agencyId);
+        if (agency) agencyData = agency as Record<string, any>;
+      }
+      let operationAddress = '';
+      if (invoice.operationId) {
+        const op = await findOperationById(invoice.operationId);
+        if (op) operationAddress = op.address || '';
+      }
+
+      let lineItems: any[] = [];
+      const inspectionLineItems = (inspectionData as any).lineItems;
+      if (inspectionLineItems) {
+        try { lineItems = JSON.parse(inspectionLineItems); } catch { lineItems = []; }
+      }
+      if (lineItems.length === 0) {
+        const baseAmount = agencyData.flatRateAmount || 0;
+        if (baseAmount > 0) lineItems.push({ name: 'Inspection Fee', amount: baseAmount, details: '' });
+      }
+
+      const invoiceNumber = `INV-${invoice.id.slice(0, 6).toUpperCase()}`;
+      const year = invoice.date ? new Date(invoice.date).getFullYear() : new Date().getFullYear();
+      const fileName = `Invoice_${invoiceNumber}_${invoice.operationName.replace(/\s+/g, '_')}.pdf`;
+
+      const pdfBlob = generateInvoicePdf({
+        invoiceNumber,
+        date: invoice.date ? format(new Date(invoice.date), 'MMM d, yyyy') : format(new Date(), 'MMM d, yyyy'),
+        businessName: '',
+        businessAddress: '',
+        businessPhone: '',
+        businessEmail: '',
+        ownerName: '',
+        operationName: invoice.operationName,
+        operationAddress,
+        agencyName: invoice.agencyName,
+        agencyAddress: agencyData.billingAddress || '',
+        lineItems,
+        totalAmount: invoice.totalAmount,
+        notes: (inspectionData as any).invoiceNotes || '',
+      });
+
+      const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+      const result = await uploadToDrive(token, user.uid, file, invoice.agencyName, invoice.operationName, String(year));
+
+      await saveInvoice({
+        ...invoice,
+        pdfDriveId: result.id,
+        updatedAt: new Date().toISOString(),
+        syncStatus: 'pending',
+      } as any);
+
+      const updated = await findAllInvoices();
+      setInvoices(updated.map(doc => ({ id: doc.id, ...doc })) as InvoiceRecord[]);
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Saved to Drive',
+        html: `<a href="${result.webViewLink}" target="_blank" rel="noopener noreferrer" style="color:#2563eb">View in Drive</a>`,
+        timer: 5000,
+        showConfirmButton: false,
+      });
+    } catch (error) {
+      logger.error('Error saving invoice to Drive:', error);
+      Swal.fire({ text: 'Failed to save to Drive.', icon: 'error' });
+    } finally {
+      setSavingToDrive(null);
     }
   };
 
@@ -391,6 +583,40 @@ export default function Invoices() {
                             }
                             PDF
                           </button>
+                          <button
+                            onClick={() => handleEmailInvoice(invoice)}
+                            disabled={generatingPdf === invoice.id}
+                            title="Email Invoice"
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors bg-stone-100 px-3 py-1.5 rounded-lg hover:bg-stone-200 disabled:opacity-50"
+                          >
+                            <Mail size={14} />
+                            Email
+                          </button>
+                          {invoice.pdfDriveId ? (
+                            <a
+                              href={`https://drive.google.com/file/d/${invoice.pdfDriveId}/view`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="View in Drive"
+                              className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100"
+                            >
+                              <Cloud size={14} />
+                              Drive
+                            </a>
+                          ) : (
+                            <button
+                              onClick={() => handleSaveToDrive(invoice)}
+                              disabled={savingToDrive === invoice.id}
+                              title="Save to Drive"
+                              className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors bg-stone-100 px-3 py-1.5 rounded-lg hover:bg-stone-200 disabled:opacity-50"
+                            >
+                              {savingToDrive === invoice.id
+                                ? <Loader size={14} className="animate-spin" />
+                                : <Cloud size={14} />
+                              }
+                              Drive
+                            </button>
+                          )}
                           <Link
                             to={`/inspections/${invoice.inspectionId}`}
                             className="inline-flex items-center gap-1.5 text-sm font-medium text-[#D49A6A] hover:text-[#c28a5c] transition-colors bg-[#D49A6A]/10 px-3 py-1.5 rounded-lg hover:bg-[#D49A6A]/20"
@@ -406,6 +632,20 @@ export default function Invoices() {
             </table>
           </div>
         </div>
+      )}
+
+      {emailModal?.isOpen && emailModal.agency && emailModal.operation && emailModal.pdfBlob && (
+        <InvoiceEmailModal
+          isOpen={true}
+          onClose={() => setEmailModal(null)}
+          agency={emailModal.agency}
+          operation={emailModal.operation}
+          invoiceNumber={emailModal.invoiceNumber}
+          totalAmount={emailModal.totalAmount}
+          inspectionDate={emailModal.inspectionDate}
+          pdfBlob={emailModal.pdfBlob}
+          onSent={handleEmailSent}
+        />
       )}
     </div>
   );

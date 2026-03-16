@@ -21,7 +21,9 @@ export const OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email',
 ] as const
 
+export const DEFAULT_OAUTH_CLIENT_ID = ''
+
 export const APP_NAME = 'DIOS Studio'
-export const CONFIG_KEY = 'dois_studio_config'
+export const CONFIG_KEY = 'dios_studio_config'
 export const TOKEN_KEY = 'googleAccessToken'
 export const TOKEN_EXPIRY_KEY = 'googleAccessTokenExpiry'

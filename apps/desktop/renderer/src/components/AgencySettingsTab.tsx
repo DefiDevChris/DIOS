@@ -12,8 +12,8 @@ interface AgencySettingsTabProps {
   isNew?: boolean;
 }
 
-const labelClass = 'block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2';
-const inputClass = 'w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-colors outline-none';
+const labelClass = 'block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2';
+const inputClass = 'w-full luxury-input rounded-2xl px-4 py-3 text-sm outline-none';
 
 function safeParseJson<T>(json: string, fallback: T): T {
   try {
@@ -144,8 +144,8 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
   return (
     <div className="space-y-6">
       {/* Section 1: Agency Information */}
-      <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
-        <h3 className="text-lg font-bold text-stone-800 mb-4">Agency Information</h3>
+      <div className="luxury-card rounded-[20px] p-6 space-y-4">
+        <h3 className="text-lg font-bold text-[#2a2420] mb-4">Agency Information</h3>
         <div>
           <label className={labelClass}>Agency Name</label>
           <input
@@ -170,8 +170,8 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
       </div>
 
       {/* Section 2: Billing Rates */}
-      <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
-        <h3 className="text-lg font-bold text-stone-800 mb-4">Billing Rates</h3>
+      <div className="luxury-card rounded-[20px] p-6 space-y-4">
+        <h3 className="text-lg font-bold text-[#2a2420] mb-4">Billing Rates</h3>
         <RateConfigSection
           isFlatRate={form.isFlatRate}
           flatRateAmount={form.flatRateAmount}
@@ -189,14 +189,14 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
       </div>
 
       {/* Section 3: Per-Type Rates (collapsible) */}
-      <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
+      <div className="luxury-card rounded-[20px] p-6 space-y-4">
         <button
           type="button"
           onClick={() => setPerTypeOpen(prev => !prev)}
           className="flex items-center gap-2 w-full text-left"
         >
-          {perTypeOpen ? <ChevronDown size={20} className="text-stone-400" /> : <ChevronRight size={20} className="text-stone-400" />}
-          <h3 className="text-lg font-bold text-stone-800">Per-Type Rates</h3>
+          {perTypeOpen ? <ChevronDown size={20} className="text-[#a89b8c]" /> : <ChevronRight size={20} className="text-[#a89b8c]" />}
+          <h3 className="text-lg font-bold text-[#2a2420]">Per-Type Rates</h3>
         </button>
 
         {perTypeOpen && (
@@ -209,8 +209,8 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
                   onClick={() => handleTogglePerTypeRates(true)}
                   className={`px-3 py-1 rounded-xl text-xs font-medium transition-colors ${
                     form.perTypeRatesEnabled
-                      ? 'bg-[#D49A6A] text-white'
-                      : 'bg-stone-100 text-stone-600'
+                      ? 'bg-[#d4a574] text-white'
+                      : 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a]'
                   }`}
                 >
                   Enabled
@@ -220,8 +220,8 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
                   onClick={() => handleTogglePerTypeRates(false)}
                   className={`px-3 py-1 rounded-xl text-xs font-medium transition-colors ${
                     !form.perTypeRatesEnabled
-                      ? 'bg-[#D49A6A] text-white'
-                      : 'bg-stone-100 text-stone-600'
+                      ? 'bg-[#d4a574] text-white'
+                      : 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a]'
                   }`}
                 >
                   Disabled
@@ -235,9 +235,9 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
                   const typeRates = ratesByType[typeName] ?? buildDefaultRateConfig();
                   const typeLineItems: DefaultLineItem[] = (typeRates as RateConfig & { defaultLineItems?: DefaultLineItem[] }).defaultLineItems ?? [];
                   return (
-                    <div key={typeName} className="border border-stone-200 rounded-xl p-4 space-y-4">
+                    <div key={typeName} className="border border-[rgba(212,165,116,0.15)] rounded-xl p-4 space-y-4">
                       <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-bold text-stone-700">{typeName}</h4>
+                        <h4 className="text-sm font-bold text-[#4a4038]">{typeName}</h4>
                         <button
                           type="button"
                           onClick={() => handleRemoveOperationType(typeName)}
@@ -279,14 +279,14 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
                       type="button"
                       onClick={handleAddOperationType}
                       disabled={!newTypeName.trim()}
-                      className="px-4 py-2.5 bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-4 py-2.5 luxury-btn text-white rounded-xl text-sm font-bold border-0 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Add
                     </button>
                     <button
                       type="button"
                       onClick={() => { setAddingType(false); setNewTypeName(''); }}
-                      className="p-2 text-stone-400 hover:text-stone-600 transition-colors"
+                      className="p-2 text-[#a89b8c] hover:text-[#7a6b5a] transition-colors"
                     >
                       <X size={16} />
                     </button>
@@ -295,7 +295,7 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
                   <button
                     type="button"
                     onClick={() => setAddingType(true)}
-                    className="text-sm font-medium text-[#D49A6A] hover:text-[#c28a5c] transition-colors flex items-center gap-1.5"
+                    className="text-sm font-medium text-[#d4a574] hover:text-[#c28a5c] transition-colors flex items-center gap-1.5"
                   >
                     <Plus size={16} />
                     Add Type
@@ -308,8 +308,8 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
       </div>
 
       {/* Section 4: Billing Contact */}
-      <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
-        <h3 className="text-lg font-bold text-stone-800 mb-4">Billing Contact</h3>
+      <div className="luxury-card rounded-[20px] p-6 space-y-4">
+        <h3 className="text-lg font-bold text-[#2a2420] mb-4">Billing Contact</h3>
         <div>
           <label className={labelClass}>Contact Name</label>
           <input
@@ -333,8 +333,8 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
       </div>
 
       {/* Section 5: Email Template */}
-      <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
-        <h3 className="text-lg font-bold text-stone-800 mb-4">Email Template</h3>
+      <div className="luxury-card rounded-[20px] p-6 space-y-4">
+        <h3 className="text-lg font-bold text-[#2a2420] mb-4">Email Template</h3>
         <div>
           <label className={labelClass}>Subject</label>
           <input
@@ -355,14 +355,14 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
             placeholder="Dear {agencyContact},&#10;&#10;Please find attached the invoice for..."
           />
         </div>
-        <p className="text-xs text-stone-400">
-          Available variables: <span className="font-mono text-stone-500">{'{agencyContact}'}</span>, <span className="font-mono text-stone-500">{'{agencyName}'}</span>, <span className="font-mono text-stone-500">{'{operatorName}'}</span>, <span className="font-mono text-stone-500">{'{inspectionDate}'}</span>, <span className="font-mono text-stone-500">{'{invoiceNumber}'}</span>, <span className="font-mono text-stone-500">{'{totalAmount}'}</span>, <span className="font-mono text-stone-500">{'{signature}'}</span>
+        <p className="text-xs text-[#a89b8c]">
+          Available variables: <span className="font-mono text-[#8b7355]">{'{agencyContact}'}</span>, <span className="font-mono text-[#8b7355]">{'{agencyName}'}</span>, <span className="font-mono text-[#8b7355]">{'{operatorName}'}</span>, <span className="font-mono text-[#8b7355]">{'{inspectionDate}'}</span>, <span className="font-mono text-[#8b7355]">{'{invoiceNumber}'}</span>, <span className="font-mono text-[#8b7355]">{'{totalAmount}'}</span>, <span className="font-mono text-[#8b7355]">{'{signature}'}</span>
         </p>
       </div>
 
       {/* Section 6: Prep Checklist */}
-      <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
-        <h3 className="text-lg font-bold text-stone-800 mb-4">Prep Checklist</h3>
+      <div className="luxury-card rounded-[20px] p-6 space-y-4">
+        <h3 className="text-lg font-bold text-[#2a2420] mb-4">Prep Checklist</h3>
         <ChecklistEditor
           title="Prep Checklist"
           enabled={form.prepChecklistEnabled}
@@ -373,8 +373,8 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
       </div>
 
       {/* Section 7: Report Checklist */}
-      <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
-        <h3 className="text-lg font-bold text-stone-800 mb-4">Report Checklist</h3>
+      <div className="luxury-card rounded-[20px] p-6 space-y-4">
+        <h3 className="text-lg font-bold text-[#2a2420] mb-4">Report Checklist</h3>
         <ChecklistEditor
           title="Report Checklist"
           enabled={form.reportChecklistEnabled}
@@ -385,8 +385,8 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
       </div>
 
       {/* Section 8: Google Drive */}
-      <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
-        <h3 className="text-lg font-bold text-stone-800 mb-4">Google Drive</h3>
+      <div className="luxury-card rounded-[20px] p-6 space-y-4">
+        <h3 className="text-lg font-bold text-[#2a2420] mb-4">Google Drive</h3>
         <div>
           <label className={labelClass}>Drive Folder ID</label>
           <input
@@ -405,8 +405,8 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
           <h3 className="text-lg font-bold text-red-700 mb-4">Danger Zone</h3>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-stone-700">Delete this agency</p>
-              <p className="text-xs text-stone-500 mt-1">Once deleted, this agency and its settings cannot be recovered.</p>
+              <p className="text-sm font-medium text-[#4a4038]">Delete this agency</p>
+              <p className="text-xs text-[#8b7355] mt-1">Once deleted, this agency and its settings cannot be recovered.</p>
             </div>
             <button
               type="button"
@@ -425,7 +425,7 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
         <button
           type="button"
           onClick={handleSave}
-          className="bg-[#D49A6A] text-white hover:bg-[#c28a5c] px-6 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+          className="luxury-btn text-white px-6 py-2.5 rounded-xl text-sm font-bold border-0 cursor-pointer transition-colors shadow-sm"
         >
           Save Changes
         </button>

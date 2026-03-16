@@ -35,11 +35,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('fs:listFiles', pathSegments),
     getBaseDir: (): Promise<string> =>
       ipcRenderer.invoke('fs:getBaseDir'),
+    selectFolder: (): Promise<string | null> =>
+      ipcRenderer.invoke('fs:selectFolder'),
   },
 
   // Sync engine
   sync: {
-    start: (config?: { firestoreToken: string; driveToken: string; userId: string; projectId: string }): Promise<{ success: boolean }> =>
+    start: (config?: { firestoreToken: string; driveToken: string; userId: string; projectId: string; refreshToken?: string; apiKey?: string }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('sync:start', config),
     stop: (): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('sync:stop'),
@@ -49,11 +51,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sync:pendingCount'),
   },
 
+  // Environment file (.env in userData)
+  env: {
+    load: (): Promise<Record<string, string>> =>
+      ipcRenderer.invoke('env:load'),
+    save: (vars: Record<string, string>): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('env:save', vars),
+    getPath: (): Promise<string> =>
+      ipcRenderer.invoke('env:path'),
+  },
+
   // Config bridge (renderer -> main)
   config: {
-    setSyncConfig: (config: { firestoreToken: string; driveToken: string; userId: string; projectId: string }): Promise<{ success: boolean }> =>
+    setSyncConfig: (config: { firestoreToken: string; driveToken: string; userId: string; projectId: string; refreshToken?: string; apiKey?: string }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('config:setSyncConfig', config),
-    getSyncConfig: (): Promise<{ firestoreToken: string; driveToken: string; userId: string; projectId: string } | null> =>
+    getSyncConfig: (): Promise<{ firestoreToken: string; driveToken: string; userId: string; projectId: string; refreshToken?: string; apiKey?: string } | null> =>
       ipcRenderer.invoke('config:getSyncConfig'),
     clearSyncConfig: (): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('config:clearSyncConfig'),

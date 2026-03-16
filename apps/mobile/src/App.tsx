@@ -6,6 +6,7 @@ import UploadScreen from './screens/Upload'
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null)
+  const [accessToken, setAccessToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -15,6 +16,9 @@ export default function App() {
     }
     return onAuthStateChanged(auth, (u) => {
       setUser(u)
+      if (!u) {
+        setAccessToken(null)
+      }
       setLoading(false)
     })
   }, [])
@@ -37,9 +41,9 @@ export default function App() {
     )
   }
 
-  if (!user) {
-    return <Login onLogin={setUser} />
+  if (!user || !accessToken) {
+    return <Login onLogin={(u, token) => { setUser(u); setAccessToken(token) }} />
   }
 
-  return <UploadScreen user={user} onSuccess={() => {}} />
+  return <UploadScreen accessToken={accessToken} />
 }

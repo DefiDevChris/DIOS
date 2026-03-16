@@ -40,20 +40,19 @@ describe('StickyNote', () => {
   it('Note mode is default (Note button highlighted)', () => {
     render(<StickyNote {...defaultProps} />)
     const noteButton = screen.getByText('Note').closest('button')
-    expect(noteButton?.className).toContain('bg-[#D49A6A]')
+    expect(noteButton?.className).toContain('bg-[#d4a574]')
     const taskButton = screen.getByText('Task').closest('button')
-    expect(taskButton?.className).toContain('bg-stone-100')
+    expect(taskButton?.className).toContain('bg-[rgba(212,165,116,0.06)]')
   })
 
   it('clicking Task switches to task mode (shows due date input)', () => {
     render(<StickyNote {...defaultProps} />)
-    expect(screen.queryByDisplayValue('')).toBeTruthy()
     expect(screen.queryByPlaceholderText('Due date (optional)')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Task'))
 
     const taskButton = screen.getByText('Task').closest('button')
-    expect(taskButton?.className).toContain('bg-[#D49A6A]')
+    expect(taskButton?.className).toContain('bg-[#d4a574]')
     expect(screen.getByPlaceholderText('Add a task...')).toBeInTheDocument()
     expect(document.querySelector('input[type="date"]')).toBeInTheDocument()
   })
@@ -63,7 +62,6 @@ describe('StickyNote', () => {
     const textarea = screen.getByPlaceholderText('Add a quick note...')
     expect(textarea).toHaveValue('')
 
-    const submitButton = screen.getByRole('button', { name: '' })
     const buttons = screen.getAllByRole('button')
     const sendButton = buttons.find(
       (btn) => !btn.textContent?.includes('Note') && !btn.textContent?.includes('Task')

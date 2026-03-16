@@ -33,7 +33,7 @@ function relativeTime(timestamp: string): string {
 const ICON_CONFIG = {
   note: { icon: StickyNote, bg: 'bg-amber-50', text: 'text-amber-600', badge: 'bg-amber-100 text-amber-700' },
   task: { icon: CheckSquare, bg: 'bg-blue-50', text: 'text-blue-600', badge: 'bg-blue-100 text-blue-700' },
-  activity: { icon: Activity, bg: 'bg-stone-100', text: 'text-stone-500', badge: 'bg-stone-100 text-stone-600' },
+  activity: { icon: Activity, bg: 'bg-[rgba(212,165,116,0.06)]', text: 'text-[#8b7355]', badge: 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a]' },
 };
 
 export default function UnifiedActivityFeed({ operationId, refreshTrigger }: UnifiedActivityFeedProps) {
@@ -62,8 +62,7 @@ export default function UnifiedActivityFeed({ operationId, refreshTrigger }: Uni
         content: d.content || '',
         timestamp: d.createdAt || d.updatedAt || '',
       })));
-      markLoaded();
-    });
+    }).catch(() => {}).finally(markLoaded);
 
     findAllTasks({ operationId }).then((tasksData) => {
       setTasks(tasksData.map((d) => ({
@@ -73,8 +72,7 @@ export default function UnifiedActivityFeed({ operationId, refreshTrigger }: Uni
         timestamp: d.createdAt || d.updatedAt || '',
         status: d.status,
       })));
-      markLoaded();
-    });
+    }).catch(() => {}).finally(markLoaded);
 
     findAllActivities({ operationId }).then((activitiesData) => {
       setActivities(activitiesData.map((d) => ({
@@ -83,8 +81,7 @@ export default function UnifiedActivityFeed({ operationId, refreshTrigger }: Uni
         content: d.description || '',
         timestamp: d.timestamp || d.updatedAt || '',
       })));
-      markLoaded();
-    });
+    }).catch(() => {}).finally(markLoaded);
   }, [user, operationId, refreshTrigger, findAllNotes, findAllTasks, findAllActivities]);
 
   const entries = useMemo(() => {
@@ -97,11 +94,11 @@ export default function UnifiedActivityFeed({ operationId, refreshTrigger }: Uni
     return (
       <div className="space-y-2">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="flex gap-3 p-3 bg-white rounded-xl border border-stone-100 animate-pulse">
-            <div className="w-8 h-8 rounded-full bg-stone-200 shrink-0" />
+          <div key={i} className="flex gap-3 p-3 bg-white rounded-xl border border-[rgba(212,165,116,0.12)] animate-pulse">
+            <div className="w-8 h-8 rounded-full bg-[rgba(212,165,116,0.06)] shrink-0" />
             <div className="flex-1 space-y-2">
-              <div className="h-3 bg-stone-200 rounded w-3/4" />
-              <div className="h-3 bg-stone-100 rounded w-1/2" />
+              <div className="h-3 bg-[rgba(212,165,116,0.06)] rounded w-3/4" />
+              <div className="h-3 bg-[rgba(212,165,116,0.04)] rounded w-1/2" />
             </div>
           </div>
         ))}
@@ -111,7 +108,7 @@ export default function UnifiedActivityFeed({ operationId, refreshTrigger }: Uni
 
   if (entries.length === 0) {
     return (
-      <div className="text-center py-8 text-stone-400 text-sm">
+      <div className="text-center py-8 text-[#a89b8c] text-sm">
         No activity yet. Add a note or complete an inspection step to see activity here.
       </div>
     );
@@ -126,7 +123,7 @@ export default function UnifiedActivityFeed({ operationId, refreshTrigger }: Uni
         return (
           <div
             key={`${entry.type}-${entry.id}`}
-            className="flex gap-3 p-3 bg-white rounded-xl border border-stone-100 hover:border-stone-200 transition-colors"
+            className="flex gap-3 p-3 bg-white rounded-xl border border-[rgba(212,165,116,0.12)] hover:border-[rgba(212,165,116,0.15)] transition-colors"
           >
             <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${config.bg}`}>
               <Icon size={14} className={config.text} />
@@ -140,16 +137,16 @@ export default function UnifiedActivityFeed({ operationId, refreshTrigger }: Uni
                   <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
                     entry.status === 'completed'
                       ? 'bg-emerald-100 text-emerald-700'
-                      : 'bg-stone-100 text-stone-500'
+                      : 'bg-[rgba(212,165,116,0.06)] text-[#8b7355]'
                   }`}>
                     {entry.status}
                   </span>
                 )}
-                <span className="text-xs text-stone-400 ml-auto shrink-0">
+                <span className="text-xs text-[#a89b8c] ml-auto shrink-0">
                   {relativeTime(entry.timestamp)}
                 </span>
               </div>
-              <p className="text-sm text-stone-700 line-clamp-2">{entry.content}</p>
+              <p className="text-sm text-[#4a4038] line-clamp-2">{entry.content}</p>
             </div>
           </div>
         );

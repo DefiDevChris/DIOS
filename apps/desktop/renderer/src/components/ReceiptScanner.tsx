@@ -3,7 +3,7 @@ import { logger } from '@dios/shared';
 import { createWorker } from 'tesseract.js';
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabase } from '../hooks/useDatabase';
-import { Camera, RefreshCw, Upload, X, CheckCircle, FileText, ScanLine, PenLine } from 'lucide-react';
+import { Camera, RefreshCw, Upload, X, CheckCircle, ScanLine, PenLine } from 'lucide-react';
 import { queueFile } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 import Swal from 'sweetalert2';
@@ -234,7 +234,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || (!imageFile && !vendor && !amount)) return;
+    if (!user || (!imageFile && (!vendor || !amount))) return;
     setUploading(true);
 
     try {
@@ -300,11 +300,11 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
   const HeaderIcon = isManualMode ? PenLine : isLocalUpload ? Upload : Camera;
 
   return (
-    <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 luxury-modal-backdrop z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+      <div className="luxury-card rounded-[24px] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Header */}
-        <div className="bg-[#D49A6A] text-white px-6 py-4 flex justify-between items-center shrink-0">
+        <div className="bg-[#d4a574] text-white px-6 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
             <HeaderIcon size={20} />
             <h2 className="font-bold tracking-wider uppercase text-sm">{headerLabel}</h2>
@@ -319,7 +319,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 bg-stone-50">
+        <div className="flex-1 overflow-y-auto p-6 bg-[rgba(212,165,116,0.04)]">
           {success ? (
             <div className="flex flex-col items-center justify-center text-emerald-600 h-64 animate-in zoom-in duration-300">
               <CheckCircle size={64} className="mb-4" />
@@ -333,7 +333,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                 <div className="w-full md:w-1/2 flex flex-col gap-4">
                   <div
                     ref={imgContainerRef}
-                    className="aspect-[3/4] bg-stone-200 rounded-2xl overflow-hidden border-2 border-dashed border-stone-300 flex flex-col items-center justify-center relative"
+                    className="aspect-[3/4] bg-[rgba(212,165,116,0.06)] rounded-2xl overflow-hidden border-2 border-dashed border-[rgba(212,165,116,0.2)] flex flex-col items-center justify-center relative"
                   >
                     {previewUrl ? (
                       <>
@@ -361,7 +361,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                                 style={{ left, top, width, height }}
                                 className={`absolute cursor-pointer rounded transition-colors ${
                                   activeField
-                                    ? 'hover:bg-[#D49A6A]/40 hover:ring-1 hover:ring-[#D49A6A]/70'
+                                    ? 'hover:bg-[#d4a574]/40 hover:ring-1 hover:ring-[#d4a574]/70'
                                     : 'hover:bg-white/20 hover:ring-1 hover:ring-white/40'
                                 }`}
                               />
@@ -371,7 +371,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
 
                         {isScanning && (
                           <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-3">
-                            <ScanLine size={36} className="text-[#D49A6A] animate-pulse" />
+                            <ScanLine size={36} className="text-[#d4a574] animate-pulse" />
                             <p className="text-white text-xs font-medium text-center px-4">{ocrStatus}</p>
                           </div>
                         )}
@@ -381,7 +381,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                             <button
                               type="button"
                               onClick={handleRetake}
-                              className="bg-white text-stone-900 px-4 py-2 rounded-xl font-medium flex items-center gap-2"
+                              className="bg-white text-[#2a2420] px-4 py-2 rounded-xl font-medium flex items-center gap-2"
                             >
                               <RefreshCw size={18} />
                               Retake
@@ -394,7 +394,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                             <button
                               type="button"
                               onClick={handleRetake}
-                              className="bg-white/90 text-stone-700 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 shadow"
+                              className="bg-white/90 text-[#4a4038] px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 shadow"
                             >
                               <RefreshCw size={13} />
                               Retake
@@ -404,19 +404,19 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                       </>
                     ) : (
                       <div className="text-center p-6 flex flex-col items-center">
-                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 text-stone-400 shadow-sm">
+                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 text-[#a89b8c] shadow-sm">
                           {isLocalUpload ? <Upload size={32} /> : <Camera size={32} />}
                         </div>
-                        <p className="text-sm text-stone-500 font-medium mb-1">
+                        <p className="text-sm text-[#8b7355] font-medium mb-1">
                           {isLocalUpload ? 'Select a receipt file' : 'Take a photo of the receipt'}
                         </p>
-                        <p className="text-xs text-stone-400 mb-4">
+                        <p className="text-xs text-[#a89b8c] mb-4">
                           {isLocalUpload ? 'Images and PDFs supported — OCR will auto-fill' : 'OCR will auto-fill the form'}
                         </p>
                         <button
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
-                          className="bg-stone-800 hover:bg-stone-900 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors w-full"
+                          className="bg-[#2a2420] hover:bg-[#1a1410] text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors w-full"
                         >
                           {isLocalUpload ? 'Browse Files' : 'Open Camera'}
                         </button>
@@ -434,10 +434,10 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
 
                   {/* OCR status / Tap-to-Fill hint */}
                   {ocrStatus && ocrStatus !== 'Done' && !isScanning && (
-                    <p className="text-xs text-stone-400 text-center">{ocrStatus}</p>
+                    <p className="text-xs text-[#a89b8c] text-center">{ocrStatus}</p>
                   )}
                   {ocrStatus === 'Done' && ocrWords.length > 0 && (
-                    <div className="bg-[#D49A6A]/10 border border-[#D49A6A]/30 rounded-xl px-3 py-2 text-center">
+                    <div className="bg-[#d4a574]/10 border border-[#d4a574]/30 rounded-xl px-3 py-2 text-center">
                       <p className="text-xs text-[#a87040] font-semibold">
                         {activeField
                           ? `Tap words on the image to fill "${activeFieldLabel[activeField]}"`
@@ -455,7 +455,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
               <div className={`w-full ${isManualMode ? '' : 'md:w-1/2'}`}>
                 <form id="receipt-form" onSubmit={handleUpload} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Date</label>
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-1.5">Date</label>
                     <input
                       type="date"
                       required
@@ -464,17 +464,17 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                       onFocus={() => setActiveField('date')}
                       className={`w-full bg-white border rounded-xl px-4 py-2.5 text-sm transition-all ${
                         activeField === 'date'
-                          ? 'border-[#D49A6A] ring-2 ring-[#D49A6A]/20'
-                          : 'border-stone-200 focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]'
+                          ? 'border-[#d4a574] ring-2 ring-[#d4a574]/20'
+                          : 'border-[rgba(212,165,116,0.15)] focus:ring-2 focus:ring-[#d4a574]/20 focus:border-[#d4a574]'
                       }`}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-1.5">
                       Vendor / Payee
                       {activeField === 'vendor' && ocrWords.length > 0 && (
-                        <span className="ml-2 text-[#D49A6A] normal-case font-medium">← tap image to fill</span>
+                        <span className="ml-2 text-[#d4a574] normal-case font-medium">← tap image to fill</span>
                       )}
                     </label>
                     <input
@@ -486,17 +486,17 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                       placeholder="e.g., Home Depot"
                       className={`w-full bg-white border rounded-xl px-4 py-2.5 text-sm transition-all ${
                         activeField === 'vendor'
-                          ? 'border-[#D49A6A] ring-2 ring-[#D49A6A]/20'
-                          : 'border-stone-200 focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]'
+                          ? 'border-[#d4a574] ring-2 ring-[#d4a574]/20'
+                          : 'border-[rgba(212,165,116,0.15)] focus:ring-2 focus:ring-[#d4a574]/20 focus:border-[#d4a574]'
                       }`}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-1.5">
                       Amount ($)
                       {activeField === 'amount' && ocrWords.length > 0 && (
-                        <span className="ml-2 text-[#D49A6A] normal-case font-medium">← tap image to fill</span>
+                        <span className="ml-2 text-[#d4a574] normal-case font-medium">← tap image to fill</span>
                       )}
                     </label>
                     <input
@@ -509,20 +509,20 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
                       placeholder="0.00"
                       className={`w-full bg-white border rounded-xl px-4 py-2.5 text-sm transition-all ${
                         activeField === 'amount'
-                          ? 'border-[#D49A6A] ring-2 ring-[#D49A6A]/20'
-                          : 'border-stone-200 focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]'
+                          ? 'border-[#d4a574] ring-2 ring-[#d4a574]/20'
+                          : 'border-[rgba(212,165,116,0.15)] focus:ring-2 focus:ring-[#d4a574]/20 focus:border-[#d4a574]'
                       }`}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Notes (Optional)</label>
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-1.5">Notes (Optional)</label>
                     <textarea
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       rows={3}
                       placeholder="What was this for?"
-                      className="w-full bg-white border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all resize-none"
+                      className="w-full bg-white border border-[rgba(212,165,116,0.15)] rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#d4a574]/20 focus:border-[#d4a574] transition-all resize-none"
                     />
                   </div>
                 </form>
@@ -534,12 +534,12 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
 
         {/* Footer Actions */}
         {!success && (
-          <div className="bg-white px-6 py-4 border-t border-stone-100 flex justify-end gap-3 shrink-0">
+          <div className="bg-white px-6 py-4 border-t border-[rgba(212,165,116,0.12)] flex justify-end gap-3 shrink-0">
             <button
               type="button"
               onClick={handleCancel}
               disabled={uploading}
-              className="px-5 py-2.5 text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-colors disabled:opacity-50"
+              className="px-5 py-2.5 text-sm font-medium text-[#7a6b5a] hover:text-[#2a2420] hover:bg-[rgba(212,165,116,0.06)] rounded-xl transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
@@ -547,7 +547,7 @@ export default function ReceiptScanner({ onClose, onSuccess, mode = 'camera' }: 
               type="submit"
               form="receipt-form"
               disabled={uploading || isScanning || (!isManualMode && !imageFile && (!vendor || !amount)) || (isManualMode && (!vendor || !amount))}
-              className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+              className="luxury-btn text-white px-6 py-2.5 rounded-xl text-sm font-bold border-0 cursor-pointer flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               {uploading ? (
                 <>

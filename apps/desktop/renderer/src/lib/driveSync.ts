@@ -1,4 +1,3 @@
-import { gapi } from 'gapi-script';
 import { db } from '@dios/shared/firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
@@ -9,76 +8,41 @@ export interface DriveFolders {
   reportsId?: string;
 }
 
-// Ensure gapi client is loaded
-const initGapiClient = async (accessToken: string) => {
-  return new Promise<void>((resolve, reject) => {
-    gapi.load('client', () => {
-      gapi.client.init({
-        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-      }).then(() => {
-        gapi.client.setToken({ access_token: accessToken });
-        resolve();
-      }).catch(reject);
-    });
+async function getOrCreateFolder(name: string, accessToken: string, parentId?: string): Promise<string> {
+  const escaped = name.replace(/'/g, "\\'");
+  let q = `mimeType='application/vnd.google-apps.folder' and name='${escaped}' and trashed=false`;
+  q += parentId ? ` and '${parentId}' in parents` : ` and 'root' in parents`;
+
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!searchRes.ok) throw new Error(`Drive folder search failed: ${searchRes.status}`);
+  const searchData = await searchRes.json();
+  if (searchData.files?.length > 0) return searchData.files[0].id;
+
+  const meta: Record<string, unknown> = { name, mimeType: 'application/vnd.google-apps.folder' };
+  if (parentId) meta.parents = [parentId];
+
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(meta),
   });
-};
-
-// Helper to check if a folder exists and return its ID, or create it if not
-async function getOrCreateFolder(folderName: string, parentId?: string): Promise<string> {
-  const escapedName = folderName.replace(/'/g, "\\'");
-  let query = `mimeType='application/vnd.google-apps.folder' and name='${escapedName}' and trashed=false`;
-  if (parentId) {
-    query += ` and '${parentId}' in parents`;
-  } else {
-    query += ` and 'root' in parents`;
-  }
-
-  // Use gapi.client.drive
-  const drive = gapi.client.drive as any;
-
-  const response = await drive.files.list({
-    q: query,
-    fields: 'files(id, name)',
-    spaces: 'drive',
-  });
-
-  const files = response.result.files;
-  if (files && files.length > 0) {
-    return files[0].id;
-  }
-
-  const createResponse = await drive.files.create({
-    resource: {
-      name: folderName,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: parentId ? [parentId] : undefined,
-    },
-    fields: 'id',
-  });
-
-  return createResponse.result.id;
+  if (!createRes.ok) throw new Error(`Drive folder creation failed: ${createRes.status}`);
+  const createData = await createRes.json();
+  return createData.id;
 }
 
 export async function initializeDriveHierarchy(accessToken: string, userId: string): Promise<DriveFolders> {
-  await initGapiClient(accessToken);
+  const masterId = await getOrCreateFolder('DIOS Master Inspections Database', accessToken);
+  const unassignedId = await getOrCreateFolder('Unassigned Uploads', accessToken, masterId);
+  const receiptsId = await getOrCreateFolder('Receipts', accessToken, masterId);
+  const reportsId = await getOrCreateFolder('Reports', accessToken, masterId);
 
-  const masterId = await getOrCreateFolder('DIOS Master Inspections Database');
+  const folders: DriveFolders = { masterId, unassignedId, receiptsId, reportsId };
 
-  const unassignedId = await getOrCreateFolder('Unassigned Uploads', masterId);
-  const receiptsId = await getOrCreateFolder('Receipts', masterId);
-  const reportsId = await getOrCreateFolder('Reports', masterId);
-
-  const folders: DriveFolders = {
-    masterId,
-    unassignedId,
-    receiptsId,
-    reportsId,
-  };
-
-  if (!db) {
-    throw new Error('Firestore is not initialized');
-  }
-
+  if (!db) throw new Error('Firestore is not initialized');
   const configRef = doc(db, `users/${userId}/system_settings/config`);
   const configSnap = await getDoc(configRef);
   if (configSnap.exists()) {
@@ -94,33 +58,21 @@ export async function ensureOperationFolder(
   accessToken: string,
   userId: string,
   agencyName: string,
-  operationName: string
+  operationName: string,
 ): Promise<string | null> {
   try {
-    await initGapiClient(accessToken);
-
-    if (!db) {
-      throw new Error('Firestore is not initialized');
-    }
-
+    if (!db) throw new Error('Firestore is not initialized');
     const configRef = doc(db, `users/${userId}/system_settings/config`);
     const configSnap = await getDoc(configRef);
-    const driveFolders = configSnap.data()?.driveFolders as DriveFolders | undefined;
-
-    let masterId = driveFolders?.masterId;
+    let masterId = (configSnap.data()?.driveFolders as DriveFolders | undefined)?.masterId;
     if (!masterId) {
       const folders = await initializeDriveHierarchy(accessToken, userId);
       masterId = folders.masterId;
     }
+    if (!masterId) return null;
 
-    if (!masterId) {
-      return null;
-    }
-
-    const agencyFolderId = await getOrCreateFolder(agencyName, masterId);
-    const operationFolderId = await getOrCreateFolder(operationName, agencyFolderId);
-
-    return operationFolderId;
+    const agencyFolderId = await getOrCreateFolder(agencyName, accessToken, masterId);
+    return await getOrCreateFolder(operationName, accessToken, agencyFolderId);
   } catch {
     return null;
   }
@@ -132,73 +84,33 @@ export async function uploadToDrive(
   file: File,
   agencyName: string,
   operationName: string,
-  year: string
-): Promise<{ id: string, webViewLink: string }> {
-  await initGapiClient(accessToken);
-
-  if (!db) {
-    throw new Error('Firestore is not initialized');
-  }
-
+  year: string,
+): Promise<{ id: string; webViewLink: string }> {
+  if (!db) throw new Error('Firestore is not initialized');
   const configRef = doc(db, `users/${userId}/system_settings/config`);
   const configSnap = await getDoc(configRef);
-  const driveFolders = configSnap.data()?.driveFolders as DriveFolders | undefined;
-
-  let masterId = driveFolders?.masterId;
+  let masterId = (configSnap.data()?.driveFolders as DriveFolders | undefined)?.masterId;
   if (!masterId) {
     const folders = await initializeDriveHierarchy(accessToken, userId);
     masterId = folders.masterId;
   }
+  if (!masterId) throw new Error('Failed to find or create master folder.');
 
-  if (!masterId) {
-    throw new Error('Failed to find or create master folder.');
-  }
+  const agencyFolderId = await getOrCreateFolder(agencyName, accessToken, masterId);
+  const operationFolderId = await getOrCreateFolder(operationName, accessToken, agencyFolderId);
+  const yearFolderId = await getOrCreateFolder(year, accessToken, operationFolderId);
 
-  const agencyFolderId = await getOrCreateFolder(agencyName, masterId);
-  const operationFolderId = await getOrCreateFolder(operationName, agencyFolderId);
-  const yearFolderId = await getOrCreateFolder(year, operationFolderId);
+  const metadata = { name: file.name, parents: [yearFolderId] };
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+  form.append('file', file);
 
-  const metadata = {
-    name: file.name,
-    parents: [yearFolderId],
-  };
-
-  const boundary = '-------314159265358979323846';
-  const delimiter = "\r\n--" + boundary + "\r\n";
-  const close_delim = "\r\n--" + boundary + "--";
-
-  const reader = new FileReader();
-  const fileData = await new Promise<string>((resolve, reject) => {
-    reader.onload = (e) => resolve((e.target?.result as string).split(',')[1]); // get base64 part
-    reader.onerror = (e) => reject(e);
-    reader.readAsDataURL(file);
-  });
-
-  const multipartRequestBody =
-    delimiter +
-    'Content-Type: application/json\r\n\r\n' +
-    JSON.stringify(metadata) +
-    delimiter +
-    'Content-Type: ' + file.type + '\r\n' +
-    'Content-Transfer-Encoding: base64\r\n\r\n' +
-    fileData +
-    close_delim;
-
-  const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': `multipart/related; boundary=${boundary}`,
-    },
-    body: multipartRequestBody,
-  });
-
-  if (!uploadRes.ok) {
-    throw new Error(`Failed to upload file to Drive: ${await uploadRes.text()}`);
-  }
-
-  const uploadData = await uploadRes.json();
-  return { id: uploadData.id, webViewLink: uploadData.webViewLink };
+  const uploadRes = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
+    { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: form }
+  );
+  if (!uploadRes.ok) throw new Error(`Failed to upload file to Drive: ${await uploadRes.text()}`);
+  return uploadRes.json();
 }
 
 export async function getOperationDriveFolderUrl(
@@ -206,31 +118,20 @@ export async function getOperationDriveFolderUrl(
   userId: string,
   agencyName: string,
   operationName: string,
-  year: string
+  year: string,
 ): Promise<string> {
-  await initGapiClient(accessToken);
-
-  if (!db) {
-    throw new Error('Firestore is not initialized');
-  }
-
+  if (!db) throw new Error('Firestore is not initialized');
   const configRef = doc(db, `users/${userId}/system_settings/config`);
   const configSnap = await getDoc(configRef);
-  const driveFolders = configSnap.data()?.driveFolders as DriveFolders | undefined;
-
-  let masterId = driveFolders?.masterId;
+  let masterId = (configSnap.data()?.driveFolders as DriveFolders | undefined)?.masterId;
   if (!masterId) {
     const folders = await initializeDriveHierarchy(accessToken, userId);
     masterId = folders.masterId;
   }
+  if (!masterId) throw new Error('Failed to find or create master folder.');
 
-  if (!masterId) {
-    throw new Error('Failed to find or create master folder.');
-  }
-
-  const agencyFolderId = await getOrCreateFolder(agencyName, masterId);
-  const operationFolderId = await getOrCreateFolder(operationName, agencyFolderId);
-  const yearFolderId = await getOrCreateFolder(year, operationFolderId);
-
+  const agencyFolderId = await getOrCreateFolder(agencyName, accessToken, masterId);
+  const operationFolderId = await getOrCreateFolder(operationName, accessToken, agencyFolderId);
+  const yearFolderId = await getOrCreateFolder(year, accessToken, operationFolderId);
   return `https://drive.google.com/drive/folders/${yearFolderId}`;
 }

@@ -1,20 +1,54 @@
-import { app, BrowserWindow, ipcMain, net } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import { findAll, findById, upsert, remove, closeDatabase } from './database'
-import { saveFile, readFile, deleteFile, listFiles, getBaseDir } from './fileStorage'
-import { startSync, stopSync, getSyncState, getPendingCount } from './syncEngine'
+import { findAll, findById, upsert, remove, closeDatabase } from './database.js'
+import { saveFile, readFile, deleteFile, listFiles, getBaseDir } from './fileStorage.js'
+import { startSync, stopSync, getSyncState, getPendingCount } from './syncEngine.js'
 import { logger } from '@dios/shared'
-import { loadSyncConfig, saveSyncConfig, deleteSyncConfig } from './configStore'
+import { loadSyncConfig, saveSyncConfig, deleteSyncConfig } from './configStore.js'
+import { loadEnv, saveEnv, getEnvFilePath } from './envStore.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+// Prevent EPIPE crashes when stdout/stderr pipe breaks (e.g. terminal closed)
+process.stdout?.on?.('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') return
+  throw err
+})
+process.stderr?.on?.('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') return
+  throw err
+})
+process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') return
+  console.error('Uncaught exception:', err)
+})
+
 let mainWindow: BrowserWindow | null = null
 
 // Stored sync config loaded from persistent storage
-let storedSyncConfig: { firestoreToken: string; driveToken: string; userId: string; projectId: string } | null = null
+let storedSyncConfig: { firestoreToken: string; driveToken: string; userId: string; projectId: string; refreshToken?: string; apiKey?: string } | null = null
+
+/** Refresh the Firestore ID token by asking Firebase REST API to exchange the stored refresh token.
+ *  We store the Firebase refresh token alongside the sync config so the main process can refresh independently. */
+async function refreshFirestoreToken(refreshToken: string, apiKey: string): Promise<string> {
+  const res = await fetch(
+    `https://securetoken.googleapis.com/v1/token?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`,
+    }
+  )
+  if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`)
+  const data = await res.json()
+  if (!data.id_token) {
+    throw new Error(data.error_description || data.error || 'Token refresh failed — no id_token in response')
+  }
+  return data.id_token as string
+}
 
 // Load config on startup
 async function initializeStoredConfig(): Promise<void> {
@@ -43,35 +77,28 @@ function createWindow(): void {
   // In development, load from Vite dev server
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:3000')
-    mainWindow.webContents.openDevTools()
   } else {
-    // In production, load the built index.html
-    // Try multiple paths for different build scenarios
-    const possiblePaths = [
-      path.join(__dirname, '../dist/index.html'),       // Current: dist-electron/dist/index.html
-      path.join(__dirname, '../../dist/index.html'),    // One level up from dist-electron/main/
-      path.join(__dirname, '../../../dist/index.html'), // Two levels up
-      path.join(app.getAppPath(), 'dist/index.html'),   // App root
-    ]
-
-    let loaded = false
-    for (const htmlPath of possiblePaths) {
-      try {
-        if (fs.existsSync(htmlPath)) {
-          mainWindow.loadFile(htmlPath)
-          loaded = true
+    // In production, dist/ is always at the app root (electron-builder copies it there)
+    const htmlPath = path.join(app.getAppPath(), 'dist', 'index.html')
+    if (fs.existsSync(htmlPath)) {
+      mainWindow.loadFile(htmlPath)
+    } else {
+      // Fallback: walk up from __dirname until we find dist/index.html
+      let dir = __dirname
+      let found = false
+      for (let i = 0; i < 5; i++) {
+        const candidate = path.join(dir, 'dist', 'index.html')
+        if (fs.existsSync(candidate)) {
+          mainWindow.loadFile(candidate)
+          found = true
           break
         }
-      } catch {
-        // Continue to next path
+        dir = path.dirname(dir)
       }
-    }
-
-    if (!loaded) {
-      console.error('Could not find index.html in any expected location')
-      console.error('Tried:', possiblePaths)
-      console.error('__dirname:', __dirname)
-      console.error('App path:', app.getAppPath())
+      if (!found) {
+        logger.error('Could not find dist/index.html. App path:', app.getAppPath(), '__dirname:', __dirname)
+        mainWindow.loadURL(`data:text/html,<html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#F9F8F6"><div style="text-align:center"><h1 style="color:#2a2420">DIOS Studio</h1><p style="color:#8b7355">Could not find application files. Please reinstall.</p></div></body></html>`)
+      }
     }
   }
 
@@ -158,13 +185,28 @@ ipcMain.handle('fs:saveFile', (_event, pathSegments: string[], fileName: string,
 })
 ipcMain.handle('fs:readFile', (_event, filePath: string) => {
   const data = readFile(filePath)
-  return data ? data.buffer : null
+  if (!data) return null
+  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
 })
 ipcMain.handle('fs:deleteFile', (_event, filePath: string) => deleteFile(filePath))
 ipcMain.handle('fs:listFiles', (_event, pathSegments: string[]) =>
   listFiles(pathSegments)
 )
 ipcMain.handle('fs:getBaseDir', () => getBaseDir())
+ipcMain.handle('fs:selectFolder', async () => {
+  const baseDir = getBaseDir()
+  // Ensure the default directory exists so the dialog can navigate to it
+  if (!fs.existsSync(baseDir)) {
+    fs.mkdirSync(baseDir, { recursive: true })
+  }
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Choose a folder for DIOS Studio files',
+    defaultPath: baseDir,
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+})
 
 // Sync IPC handlers
 ipcMain.handle('sync:start', async (_event, config) => {
@@ -173,7 +215,18 @@ ipcMain.handle('sync:start', async (_event, config) => {
   if (!syncConfig) {
     throw new Error('No sync config available. Call setSyncConfig first.')
   }
-  await startSync(syncConfig)
+  // Update stored config with the latest tokens from the renderer
+  if (config) storedSyncConfig = config
+
+  const refreshToken: string | undefined = (syncConfig as any).refreshToken
+  const apiKey: string | undefined = (syncConfig as any).apiKey
+
+  await startSync({
+    ...syncConfig,
+    getFirestoreToken: (refreshToken && apiKey)
+      ? () => refreshFirestoreToken(refreshToken, apiKey)
+      : undefined,
+  })
   return { success: true }
 })
 
@@ -205,6 +258,14 @@ ipcMain.handle('config:clearSyncConfig', async () => {
     throw new Error(`Failed to clear sync config: ${error instanceof Error ? error.message : String(error)}`)
   }
 })
+// Environment file IPC handlers (.env in userData)
+ipcMain.handle('env:load', () => loadEnv())
+ipcMain.handle('env:save', (_event, vars: Record<string, string>) => {
+  saveEnv(vars)
+  return { success: true }
+})
+ipcMain.handle('env:path', () => getEnvFilePath())
+
 ipcMain.handle('sync:stop', () => {
   stopSync()
   return { success: true }
@@ -220,6 +281,15 @@ app.on('before-quit', () => {
 app.whenReady().then(async () => {
   await initializeStoredConfig()
   createWindow()
+
+  // Check for updates in production (silently, notify when available)
+  if (process.env.NODE_ENV !== 'development') {
+    import('electron-updater').then(({ autoUpdater }) => {
+      autoUpdater.checkForUpdatesAndNotify().catch((err: Error) => {
+        logger.warn('Auto-updater check failed:', err)
+      })
+    }).catch(() => { /* electron-updater not installed */ })
+  }
 })
 
 app.on('window-all-closed', () => {

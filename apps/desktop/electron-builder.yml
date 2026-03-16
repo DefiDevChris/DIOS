@@ -2,6 +2,10 @@ appId: com.dios.studio
 productName: DIOS Studio
 copyright: Copyright 2026
 
+asar: true
+asarUnpack:
+  - "**/*.node"
+
 directories:
   output: out
   buildResources: public
@@ -11,16 +15,24 @@ files:
   - dist-electron/**/*
   - public/**/*
 
+# Code signing requires CSC_LINK / CSC_KEY_PASSWORD (macOS) or CSC_LINK (Windows)
+# environment variables. These are expected to be configured in CI only.
+publish:
+  provider: github
+  owner: chrishoran  # Override via GH_TOKEN in CI
+  repo: DIOS
+
 win:
   target: nsis
-  icon: public/icon.svg
+  icon: public/icon.ico
 
 mac:
   target: dmg
-  icon: public/icon.svg
+  # electron-builder auto-converts PNG to icns at build time
+  icon: public/icon.png
   category: public.app-category.business
 
 linux:
   target: AppImage
-  icon: public/icon.svg
+  icon: public/icon.png
   category: Office

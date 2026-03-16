@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabase } from '../hooks/useDatabase';
 import { FileText, Download, Calendar, TrendingUp, DollarSign, Clock } from 'lucide-react';
-import { generateTaxReportPdf, TaxReportData } from '../lib/pdfGenerator';
+import type { TaxReportData } from '../lib/pdfGenerator';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
 import Swal from 'sweetalert2';
@@ -32,22 +32,22 @@ interface HoursRow {
   'Hours Billed': number;
 }
 
-function EmptyChartState({ label }: { label: string }) {
+function EmptyChartState({ label, year }: { label: string; year: number }) {
   return (
-    <div className="flex flex-col items-center justify-center h-48 text-stone-400 gap-2">
-      <TrendingUp size={32} className="text-stone-200" />
-      <p className="text-sm">No {label} data for {new Date().getFullYear()}.</p>
-      <p className="text-xs text-stone-300">Data will appear here as you record entries.</p>
+    <div className="flex flex-col items-center justify-center h-48 text-[#a89b8c] gap-2">
+      <TrendingUp size={32} className="text-[#d4a574]" />
+      <p className="text-sm">No {label} data for {year}.</p>
+      <p className="text-xs text-[#a89b8c]">Data will appear here as you record entries.</p>
     </div>
   );
 }
 
 export default function Reports() {
-  const { user } = useAuth();
+  const { user, googleAccessToken } = useAuth();
   const { findAll: findAllInvoices } = useDatabase<Invoice>({ table: 'invoices' });
   const { findAll: findAllExpenses } = useDatabase<Expense>({ table: 'expenses' });
   const { findAll: findAllInspections } = useDatabase<Inspection>({ table: 'inspections' });
-  
+
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [generating, setGenerating] = useState(false);
 
@@ -56,7 +56,7 @@ export default function Reports() {
   const [chartsLoading, setChartsLoading] = useState(true);
 
   const currentYear = new Date().getFullYear();
-  const availableYears = Array.from({ length: 5 }, (_, i) => currentYear + i).filter((y) => y <= currentYear + 1);
+  const availableYears = Array.from({ length: 6 }, (_, i) => currentYear - 3 + i);
 
   const [totalMiles, setTotalMiles] = useState(0);
   const [irsMileageRate, setIrsMileageRate] = useState(0.70);
@@ -113,8 +113,8 @@ export default function Reports() {
             const inspYear = new Date(insp.date).getFullYear();
             if (inspYear !== selectedYear) return;
             const month = new Date(insp.date).getMonth();
-            const logged = (insp.prepHours || 0) + (insp.onsiteHours || 0) + (insp.reportHours || 0)
-              || ((insp.baseHoursLog || 0) + (insp.additionalHoursLog || 0));
+            const detailedHours = (insp.prepHours || 0) + (insp.onsiteHours || 0) + (insp.reportHours || 0);
+            const logged = detailedHours > 0 ? detailedHours : (insp.baseHoursLog || 0) + (insp.additionalHoursLog || 0);
             hoursLoggedByMonth[month] += logged;
             yearMiles += insp.calculatedMileage || 0;
           });
@@ -124,16 +124,10 @@ export default function Reports() {
         setTotalMiles(yearMiles);
 
         // Load IRS mileage rate from system settings
-        // Keep raw Firestore for system_settings since it's special
         try {
-          const { db } = await import('@dios/shared/firebase');
-          const { collection, getDocs } = await import('firebase/firestore');
-          const settingsDocs = await getDocs(collection(db, `users/${user.uid}/system_settings`));
-          const configDoc = settingsDocs.docs.find((d) => d.id === 'config');
-          if (configDoc) {
-            const rate = configDoc.data().irsMileageRate;
-            if (rate) setIrsMileageRate(rate);
-          }
+          const { getSystemConfig } = await import('../utils/systemConfig');
+          const config = await getSystemConfig(user.uid);
+          if (config.irsMileageRate) setIrsMileageRate(config.irsMileageRate as number);
         } catch {
           // system_settings may not exist
         }
@@ -211,7 +205,15 @@ export default function Reports() {
         irsMileageRate,
         mileageDeduction: totalMiles * irsMileageRate,
       } as TaxReportData;
-      const pdfBlob = generateTaxReportPdf(reportData);
+
+      let pdfBlob: Blob;
+      try {
+        const { generateTaxReportPdf } = await import('../lib/pdfGenerator');
+        pdfBlob = generateTaxReportPdf(reportData);
+      } catch {
+        Swal.fire({ text: 'PDF generation is not yet available.', icon: 'info' });
+        return;
+      }
       const fileName = `Schedule_C_Export_${selectedYear}.pdf`;
 
       if ('showSaveFilePicker' in window) {
@@ -241,8 +243,8 @@ export default function Reports() {
       }
 
       try {
-        const token = localStorage.getItem('googleAccessToken');
-        if (token && token !== 'dummy') {
+        const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+        if (token) {
           const metadata = { name: fileName, mimeType: 'application/pdf' };
           const form = new FormData();
           form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
@@ -272,15 +274,15 @@ export default function Reports() {
       {/* Header */}
       <div className="flex items-end justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">Reports &amp; Exports</h1>
-          <p className="mt-2 text-stone-500">Generate tax documents, financial summaries, and performance charts.</p>
+          <h1 className="font-serif-display text-[36px] font-semibold text-[#2a2420] tracking-tight">Reports &amp; Exports</h1>
+          <p className="mt-2 text-[#8b7355] font-medium">Generate tax documents, financial summaries, and performance charts.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Calendar size={16} className="text-stone-400" />
+          <Calendar size={16} className="text-[#a89b8c]" />
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
-            className="bg-white border border-stone-200 rounded-xl px-4 py-2 text-sm font-medium text-stone-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20"
+            className="luxury-input rounded-2xl px-4 py-2 text-sm font-medium outline-none"
           >
             {availableYears.map(year => (
               <option key={year} value={year}>{year}</option>
@@ -292,41 +294,41 @@ export default function Reports() {
       {/* Top action cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         {/* Schedule C Export */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex flex-col hover:shadow-md transition-shadow">
-          <div className="w-12 h-12 bg-[#D49A6A]/10 rounded-2xl flex items-center justify-center mb-6">
-            <FileText size={24} className="text-[#D49A6A]" />
+        <div className="luxury-card rounded-[24px] p-6 flex flex-col hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 bg-[#d4a574]/10 rounded-2xl flex items-center justify-center mb-6">
+            <FileText size={24} className="text-[#d4a574]" />
           </div>
-          <h2 className="text-xl font-bold text-stone-900 mb-2">Schedule C Export</h2>
-          <p className="text-sm text-stone-500 mb-6 flex-1">
+          <h2 className="text-xl font-bold text-[#2a2420] mb-2">Schedule C Export</h2>
+          <p className="text-sm text-[#8b7355] mb-6 flex-1">
             Aggregate your paid invoices and recorded expenses for the selected tax year to generate a Schedule C summary report.
           </p>
           <button
             onClick={handleGenerateScheduleC}
             disabled={generating}
-            className="w-full mt-2 py-2.5 bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+            className="w-full mt-2 py-2.5 luxury-btn text-white rounded-xl text-sm font-bold border-0 cursor-pointer transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
           >
             <Download size={16} />
             {generating ? 'Generating PDF…' : 'Generate PDF'}
           </button>
         </div>
         {/* Mileage Summary */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex flex-col hover:shadow-md transition-shadow">
+        <div className="luxury-card rounded-[24px] p-6 flex flex-col hover:shadow-md transition-shadow">
           <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center mb-6">
             <TrendingUp size={24} className="text-blue-500" />
           </div>
-          <h2 className="text-xl font-bold text-stone-900 mb-2">Mileage Summary</h2>
+          <h2 className="text-xl font-bold text-[#2a2420] mb-2">Mileage Summary</h2>
           <div className="space-y-3 flex-1">
             <div className="flex justify-between text-sm">
-              <span className="text-stone-500">Total Miles</span>
-              <span className="font-medium text-stone-900">{totalMiles.toFixed(1)} mi</span>
+              <span className="text-[#8b7355]">Total Miles</span>
+              <span className="font-medium text-[#2a2420]">{totalMiles.toFixed(1)} mi</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-stone-500">IRS Rate</span>
-              <span className="font-medium text-stone-900">${irsMileageRate.toFixed(2)}/mi</span>
+              <span className="text-[#8b7355]">IRS Rate</span>
+              <span className="font-medium text-[#2a2420]">${irsMileageRate.toFixed(2)}/mi</span>
             </div>
-            <div className="flex justify-between text-sm pt-2 border-t border-stone-100">
-              <span className="text-stone-700 font-medium">Mileage Deduction</span>
-              <span className="font-bold text-stone-900">${(totalMiles * irsMileageRate).toFixed(2)}</span>
+            <div className="flex justify-between text-sm pt-2 border-t border-[rgba(212,165,116,0.12)]">
+              <span className="text-[#4a4038] font-medium">Mileage Deduction</span>
+              <span className="font-bold text-[#2a2420]">${(totalMiles * irsMileageRate).toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -336,18 +338,18 @@ export default function Reports() {
       <div className="space-y-6">
 
         {/* Monthly Revenue vs Expenses */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100">
+        <div className="luxury-card rounded-[24px] p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 bg-emerald-50 rounded-2xl flex items-center justify-center">
               <DollarSign size={20} className="text-emerald-600" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-stone-900">Monthly Expenses vs. Revenue</h2>
-              <p className="text-xs text-stone-400">{selectedYear} · Paid invoices &amp; recorded expenses</p>
+              <h2 className="text-base font-bold text-[#2a2420]">Monthly Expenses vs. Revenue</h2>
+              <p className="text-xs text-[#a89b8c]">{selectedYear} · Paid invoices &amp; recorded expenses</p>
             </div>
           </div>
           {chartsLoading ? (
-            <div className="h-48 bg-stone-50 rounded-2xl animate-pulse" />
+            <div className="h-48 bg-[rgba(212,165,116,0.04)] rounded-2xl animate-pulse" />
           ) : hasRevenueData ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={monthlyData} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
@@ -359,28 +361,28 @@ export default function Reports() {
                   contentStyle={{ borderRadius: '12px', border: '1px solid #e7e5e4', boxShadow: '0 4px 16px rgba(0,0,0,0.06)' }}
                 />
                 <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '12px' }} />
-                <Bar dataKey="Revenue" fill="#D49A6A" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="Revenue" fill="#d4a574" radius={[6, 6, 0, 0]} />
                 <Bar dataKey="Expenses" fill="#d6d3d1" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyChartState label="revenue or expense" />
+            <EmptyChartState label="revenue or expense" year={selectedYear} />
           )}
         </div>
 
         {/* Hours Logged vs Billed */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100">
+        <div className="luxury-card rounded-[24px] p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 bg-blue-50 rounded-2xl flex items-center justify-center">
               <Clock size={20} className="text-blue-500" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-stone-900">Hours Logged vs. Billed</h2>
-              <p className="text-xs text-stone-400">{selectedYear} · Inspection hours logged &amp; invoice hours billed</p>
+              <h2 className="text-base font-bold text-[#2a2420]">Hours Logged vs. Billed</h2>
+              <p className="text-xs text-[#a89b8c]">{selectedYear} · Inspection hours logged &amp; invoice hours billed</p>
             </div>
           </div>
           {chartsLoading ? (
-            <div className="h-48 bg-stone-50 rounded-2xl animate-pulse" />
+            <div className="h-48 bg-[rgba(212,165,116,0.04)] rounded-2xl animate-pulse" />
           ) : hasHoursData ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={hoursData} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
@@ -393,11 +395,11 @@ export default function Reports() {
                 />
                 <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '12px' }} />
                 <Bar dataKey="Hours Logged" fill="#60a5fa" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="Hours Billed" fill="#D49A6A" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="Hours Billed" fill="#d4a574" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyChartState label="hours" />
+            <EmptyChartState label="hours" year={selectedYear} />
           )}
         </div>
 

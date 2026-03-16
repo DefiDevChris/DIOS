@@ -7,26 +7,26 @@ export function useFileStorage() {
     fileName: string,
     data: ArrayBuffer,
   ): Promise<string | null> => {
-    if (!isElectron) return null
+    if (!isElectron()) return null
     return window.electronAPI!.fs!.saveFile(pathSegments, fileName, data)
   }, [])
 
   const readFile = useCallback(async (filePath: string): Promise<ArrayBuffer | null> => {
-    if (!isElectron) return null
+    if (!isElectron()) return null
     return window.electronAPI!.fs!.readFile(filePath)
   }, [])
 
   const deleteFile = useCallback(async (filePath: string): Promise<boolean> => {
-    if (!isElectron) return false
+    if (!isElectron()) return false
     return window.electronAPI!.fs!.deleteFile(filePath)
   }, [])
 
   const listFiles = useCallback(async (
     pathSegments: string[],
   ): Promise<string[]> => {
-    if (!isElectron) return []
+    if (!isElectron()) return []
     return window.electronAPI!.fs!.listFiles(pathSegments)
   }, [])
 
-  return { saveFile, readFile, deleteFile, listFiles, isAvailable: isElectron }
+  return { saveFile, readFile, deleteFile, listFiles, isAvailable: isElectron() }
 }

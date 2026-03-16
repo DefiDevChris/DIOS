@@ -8,7 +8,7 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   silent: 4,
 }
 
-let currentLevel: LogLevel = 'info'
+let currentLevel: LogLevel = typeof process !== 'undefined' && process.env?.NODE_ENV === 'development' ? 'debug' : 'warn'
 
 export function setLogLevel(level: LogLevel): void {
   currentLevel = level

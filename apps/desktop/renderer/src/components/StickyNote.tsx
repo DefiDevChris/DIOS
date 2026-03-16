@@ -64,15 +64,15 @@ export default function StickyNote({ operationId, onSaved }: StickyNoteProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-stone-100 p-4 shadow-sm">
+    <div className="luxury-card rounded-[20px] p-4">
       <div className="flex gap-2 mb-3">
         <button
           type="button"
           onClick={() => setMode('note')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
             mode === 'note'
-              ? 'bg-[#D49A6A] text-white'
-              : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+              ? 'bg-[#d4a574] text-white'
+              : 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a] hover:bg-[rgba(212,165,116,0.1)]'
           }`}
         >
           <StickyNoteIcon size={14} />
@@ -83,8 +83,8 @@ export default function StickyNote({ operationId, onSaved }: StickyNoteProps) {
           onClick={() => setMode('task')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
             mode === 'task'
-              ? 'bg-[#D49A6A] text-white'
-              : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+              ? 'bg-[#d4a574] text-white'
+              : 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a] hover:bg-[rgba(212,165,116,0.1)]'
           }`}
         >
           <CheckSquare size={14} />
@@ -99,14 +99,14 @@ export default function StickyNote({ operationId, onSaved }: StickyNoteProps) {
             onChange={(e) => setContent(e.target.value)}
             placeholder={mode === 'note' ? 'Add a quick note...' : 'Add a task...'}
             rows={2}
-            className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all resize-none outline-none"
+            className="w-full luxury-input rounded-2xl px-3 py-2 text-sm outline-none resize-none"
           />
           {mode === 'task' && (
             <input
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
-              className="bg-stone-50 border border-stone-200 rounded-lg px-3 py-1.5 text-xs focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all outline-none"
+              className="luxury-input rounded-lg px-3 py-1.5 text-xs outline-none"
               placeholder="Due date (optional)"
             />
           )}
@@ -114,7 +114,7 @@ export default function StickyNote({ operationId, onSaved }: StickyNoteProps) {
         <button
           onClick={handleSubmit}
           disabled={!content.trim() || saving}
-          className="p-2 h-fit bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-end"
+          className="p-2 h-fit luxury-btn text-white rounded-xl border-0 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-end"
         >
           <Send size={16} />
         </button>

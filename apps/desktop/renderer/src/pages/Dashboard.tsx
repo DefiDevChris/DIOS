@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowRight, Calendar, CloudUpload, Edit3, Check, Loader2, X, FileText, Image, File } from 'lucide-react';
+import { ArrowRight, Calendar, CloudUpload, Edit3, Check, Loader2, FileText, Image, File } from 'lucide-react';
 import { format } from 'date-fns';
 import TasksWidget from '../components/TasksWidget';
 import ProcessUploadModal from '../components/ProcessUploadModal';
@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router';
 import { logger } from '@dios/shared';
 import { useDatabase } from '../hooks/useDatabase';
 import type { Inspection, Operation } from '@dios/shared/types';
+import Swal from 'sweetalert2';
 
 interface UpcomingInspection {
   id: string;
@@ -22,9 +23,9 @@ interface UpcomingInspection {
 
 // Extended UI interface for UnassignedUpload with Firestore fields
 interface UnassignedUploadUI extends UnassignedUpload {
-  downloadURL: string;
-  storagePath: string;
-  fileSize: number;
+  downloadURL?: string;
+  storagePath?: string;
+  fileSize?: number;
 }
 
 // Local Note interface that matches what we store
@@ -37,7 +38,7 @@ interface Note {
 function getFileIcon(fileType: string) {
   if (fileType.startsWith('image/')) return { Icon: Image, color: 'text-purple-500' };
   if (fileType === 'application/pdf') return { Icon: FileText, color: 'text-blue-500' };
-  return { Icon: File, color: 'text-stone-400' };
+  return { Icon: File, color: 'text-[#a89b8c]' };
 }
 
 function formatFileSize(bytes: number): string {
@@ -163,8 +164,13 @@ export default function Dashboard() {
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user || !storage) return;
+    if (!file || !user) return;
     e.target.value = '';
+
+    if (!storage) {
+      Swal.fire({ text: 'Cloud storage is not configured. Please set up Firebase to upload files.', icon: 'info' });
+      return;
+    }
 
     setUploading(true);
     setUploadProgress(0);
@@ -189,12 +195,9 @@ export default function Dashboard() {
               await saveUpload({
                 id: crypto.randomUUID(),
                 fileName: file.name,
-                storagePath,
-                downloadURL,
                 fileType: file.type,
-                fileSize: file.size,
-                uploadedAt: new Date().toISOString(),
                 fileUrl: downloadURL,
+                uploadedAt: new Date().toISOString(),
                 source: 'desktop' as const,
               });
               // Refresh uploads list
@@ -229,11 +232,11 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex justify-between items-end mb-8">
         <div>
-          <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">Good Morning</h1>
-          <p className="mt-2 text-stone-500 text-sm">Here's what's happening with your certification operations today.</p>
+          <h1 className="font-serif-display text-[36px] font-semibold text-[#2a2420] tracking-tight">{(() => { const h = new Date().getHours(); return h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening'; })()}</h1>
+          <p className="mt-2 text-[#8b7355] font-medium text-sm">Here's what's happening with your certification operations today.</p>
         </div>
-        <div className="flex items-center gap-2 text-stone-500 text-sm font-medium">
-          <Calendar size={16} className="text-[#D49A6A]" />
+        <div className="flex items-center gap-2 text-[#8b7355] text-sm font-medium">
+          <Calendar size={16} className="text-[#d4a574]" />
           {format(today, 'EEEE, MMMM d, yyyy')}
         </div>
       </div>
@@ -242,12 +245,12 @@ export default function Dashboard() {
       <div className="grid grid-cols-12 gap-6">
 
         {/* Upcoming Inspections (Spans 7 cols) */}
-        <div className="col-span-12 lg:col-span-7 bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex flex-col min-h-[320px]">
+        <div className="col-span-12 lg:col-span-7 luxury-card rounded-[24px] p-6 flex flex-col min-h-[320px]">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-base font-bold text-stone-900">Upcoming Inspections</h2>
+            <h2 className="text-base font-bold text-[#2a2420]">Upcoming Inspections</h2>
             <button
               onClick={() => navigate('/schedule')}
-              className="text-stone-400 hover:text-[#D49A6A] transition-colors"
+              className="text-[#a89b8c] hover:text-[#d4a574] transition-colors"
             >
               <ArrowRight size={18} />
             </button>
@@ -255,12 +258,12 @@ export default function Dashboard() {
 
           {loadingInspections ? (
             <div className="flex-1 flex items-center justify-center">
-              <Loader2 size={24} className="animate-spin text-stone-300" />
+              <Loader2 size={24} className="animate-spin text-[#d4a574]" />
             </div>
           ) : upcomingInspections.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-stone-400">
-              <div className="w-12 h-12 bg-stone-50 rounded-xl flex items-center justify-center mb-3 border border-stone-100">
-                <Calendar size={24} className="text-stone-300" />
+            <div className="flex-1 flex flex-col items-center justify-center text-[#a89b8c]">
+              <div className="w-12 h-12 bg-[rgba(212,165,116,0.04)] rounded-xl flex items-center justify-center mb-3 border border-[rgba(212,165,116,0.12)]">
+                <Calendar size={24} className="text-[#d4a574]" />
               </div>
               <p className="text-sm font-medium">No upcoming inspections</p>
             </div>
@@ -269,22 +272,22 @@ export default function Dashboard() {
               {upcomingInspections.map(inspection => (
                 <div
                   key={inspection.id}
-                  className="flex items-center gap-4 p-3 rounded-2xl bg-stone-50 border border-stone-100 hover:bg-stone-100 transition-colors cursor-pointer"
+                  className="flex items-center gap-4 p-3 rounded-2xl bg-[rgba(212,165,116,0.04)] border border-[rgba(212,165,116,0.12)] hover:bg-[rgba(212,165,116,0.08)] transition-colors cursor-pointer"
                   onClick={() => navigate(`/inspections/${inspection.id}`)}
                 >
-                  <div className="w-12 h-12 rounded-xl bg-white border border-stone-200 flex flex-col items-center justify-center shrink-0">
-                    <span className="text-[10px] font-bold text-[#D49A6A] uppercase leading-none">
+                  <div className="w-12 h-12 rounded-xl bg-white border border-[rgba(212,165,116,0.15)] flex flex-col items-center justify-center shrink-0">
+                    <span className="text-[10px] font-bold text-[#d4a574] uppercase leading-none">
                       {formatInspectionDate(inspection.date).split(' ')[0]}
                     </span>
-                    <span className="text-lg font-extrabold text-stone-900 leading-none">
+                    <span className="text-lg font-extrabold text-[#2a2420] leading-none">
                       {formatInspectionDate(inspection.date).split(' ')[1]}
                     </span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-stone-900 truncate">{inspection.operationName}</div>
-                    <div className="text-xs text-stone-500 mt-0.5">{inspection.status}</div>
+                    <div className="text-sm font-semibold text-[#2a2420] truncate">{inspection.operationName}</div>
+                    <div className="text-xs text-[#8b7355] mt-0.5">{inspection.status}</div>
                   </div>
-                  <ArrowRight size={14} className="text-stone-300 shrink-0" />
+                  <ArrowRight size={14} className="text-[#d4a574] shrink-0" />
                 </div>
               ))}
             </div>
@@ -292,16 +295,16 @@ export default function Dashboard() {
         </div>
 
         {/* Quick Note (Spans 5 cols) */}
-        <div className="col-span-12 lg:col-span-5 bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex flex-col min-h-[320px]">
+        <div className="col-span-12 lg:col-span-5 luxury-card rounded-[24px] p-6 flex flex-col min-h-[320px]">
           <div className="flex items-center gap-2 mb-4">
-            <Edit3 size={18} className="text-[#D49A6A]" />
-            <h2 className="text-base font-bold text-stone-900">Quick Note</h2>
+            <Edit3 size={18} className="text-[#d4a574]" />
+            <h2 className="text-base font-bold text-[#2a2420]">Quick Note</h2>
           </div>
           <div className="flex-1 relative">
             <textarea
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
-              className="w-full h-full resize-none bg-[#FDFCFB] border border-stone-200 border-dashed rounded-2xl p-4 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]/50 transition-all"
+              className="w-full h-full resize-none luxury-input border-dashed rounded-2xl p-4 text-sm text-[#7a6b5a] focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]/50 transition-all"
               placeholder="Type your notes here"
             />
             <div className="absolute bottom-4 right-4 flex items-center gap-2">
@@ -309,7 +312,7 @@ export default function Dashboard() {
                 <span className="text-[10px] text-emerald-500 font-medium uppercase tracking-wider">Saved!</span>
               )}
               {savingNote && (
-                <Loader2 size={14} className="animate-spin text-stone-400" />
+                <Loader2 size={14} className="animate-spin text-[#a89b8c]" />
               )}
               <button
                 onClick={handleSaveNote}
@@ -324,15 +327,15 @@ export default function Dashboard() {
 
         {/* Tasks & Follow-ups (Spans 6 cols) */}
         <div className="col-span-12 lg:col-span-6 min-h-[280px]">
-          <TasksWidget inspectionId={undefined} />
+          <TasksWidget />
         </div>
 
         {/* Uploads (Spans 6 cols) */}
-        <div className="col-span-12 lg:col-span-6 bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex flex-col min-h-[280px]">
+        <div className="col-span-12 lg:col-span-6 luxury-card rounded-[24px] p-6 flex flex-col min-h-[280px]">
           <div className="flex justify-between items-center mb-5">
             <div className="flex items-center gap-2">
-              <CloudUpload size={18} className="text-[#D49A6A]" />
-              <h2 className="text-base font-bold text-stone-900">Uploads</h2>
+              <CloudUpload size={18} className="text-[#d4a574]" />
+              <h2 className="text-base font-bold text-[#2a2420]">Uploads</h2>
               {unassignedUploads.length > 0 && (
                 <span className="bg-[#D49A6A] text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
                   {unassignedUploads.length}
@@ -342,7 +345,7 @@ export default function Dashboard() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#D49A6A] hover:bg-[#c28a5c] px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="luxury-btn text-white text-xs font-semibold px-3 py-1.5 rounded-lg border-0 cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CloudUpload size={13} />
               Upload
@@ -362,10 +365,10 @@ export default function Dashboard() {
           {uploading && (
             <div className="mb-4">
               <div className="flex justify-between items-center mb-1.5">
-                <span className="text-xs text-stone-500 font-medium">Uploading…</span>
+                <span className="text-xs text-[#8b7355] font-medium">Uploading…</span>
                 <span className="text-xs font-bold text-[#D49A6A]">{uploadProgress}%</span>
               </div>
-              <div className="w-full bg-stone-100 rounded-full h-2">
+              <div className="w-full bg-[rgba(212,165,116,0.12)] rounded-full h-2">
                 <div
                   className="bg-[#D49A6A] h-2 rounded-full transition-all duration-200"
                   style={{ width: `${uploadProgress}%` }}
@@ -376,18 +379,18 @@ export default function Dashboard() {
 
           {/* Hint text */}
           {unassignedUploads.length > 0 && !uploading && (
-            <p className="text-[10px] text-stone-400 mb-3">
+            <p className="text-[10px] text-[#a89b8c] mb-3">
               Click an item to assign it to an operation or process as a receipt.
             </p>
           )}
 
           {/* File list or empty state */}
           {!uploading && unassignedUploads.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-stone-400">
+            <div className="flex-1 flex flex-col items-center justify-center text-[#a89b8c]">
               <div className="mb-3">
-                <CloudUpload size={36} className="text-stone-300" strokeWidth={1.5} />
+                <CloudUpload size={36} className="text-[#d4a574]" strokeWidth={1.5} />
               </div>
-              <p className="text-sm font-medium text-stone-500">No unassigned uploads</p>
+              <p className="text-sm font-medium text-[#7a6b5a]">No unassigned uploads</p>
               <p className="text-xs mt-1">Captures from Mobile Hub appear here</p>
             </div>
           ) : unassignedUploads.length > 0 ? (
@@ -398,22 +401,22 @@ export default function Dashboard() {
                   <button
                     key={file.id}
                     onClick={() => setSelectedUpload(file)}
-                    className="flex items-center gap-3 p-2.5 rounded-xl bg-stone-50 border border-stone-100 hover:bg-amber-50 hover:border-[#D49A6A]/30 transition-colors group text-left w-full"
+                    className="flex items-center gap-3 p-2.5 rounded-xl bg-[rgba(212,165,116,0.04)] border border-[rgba(212,165,116,0.12)] hover:bg-[rgba(212,165,116,0.06)] hover:border-[rgba(212,165,116,0.3)] transition-colors group text-left w-full"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
+                    <div className="w-8 h-8 rounded-lg bg-white border border-[rgba(212,165,116,0.15)] flex items-center justify-center shrink-0">
                       <Icon size={16} className={color} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-xs font-semibold text-stone-800 truncate">{file.fileName}</div>
-                      <div className="text-[10px] text-stone-400 mt-0.5">
-                        Unassigned · {formatFileSize(file.fileSize)}
+                      <div className="text-xs font-semibold text-[#2a2420] truncate">{file.fileName}</div>
+                      <div className="text-[10px] text-[#a89b8c] mt-0.5">
+                        Unassigned{file.fileSize ? ` · ${formatFileSize(file.fileSize)}` : ''}
                       </div>
                     </div>
                     <div className="shrink-0 flex items-center gap-1">
-                      <span className="text-[10px] font-semibold text-[#D49A6A] opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-[10px] font-semibold text-[#d4a574] opacity-0 group-hover:opacity-100 transition-opacity">
                         Process
                       </span>
-                      <ArrowRight size={12} className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <ArrowRight size={12} className="text-[#d4a574] opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                   </button>
                 );

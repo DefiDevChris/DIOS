@@ -65,50 +65,51 @@ export default function StepModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+    <div className="luxury-modal-backdrop z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="luxury-modal-card rounded-[28px] w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-          <h2 className="text-xl font-bold text-stone-900">
+        <div className="px-6 py-5 flex justify-between items-center">
+          <h2 className="font-serif-display text-2xl font-semibold text-[#2a2420]">
             {STEP_TITLES[step]}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+            className="p-1.5 rounded-xl text-[#a89b8c] hover:text-[#2a2420] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        <div className="luxury-divider mx-6" />
+
         {/* Body */}
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-5">
           {showChecklist && (
             <div>
-              <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+              <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">
                 Checklist
               </label>
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {checklist.map((ci, index) => (
-                  <label
+                  <button
+                    type="button"
                     key={index}
-                    className="flex items-center gap-3 cursor-pointer"
+                    onClick={() => handleToggleItem(index)}
+                    className="flex items-center gap-3 cursor-pointer w-full text-left"
                   >
-                    <input
-                      type="checkbox"
-                      checked={ci.checked}
-                      onChange={() => handleToggleItem(index)}
-                      className="w-4 h-4 rounded border-stone-300 text-[#D49A6A] focus:ring-[#D49A6A]"
+                    <span
+                      className={`luxury-check-orb${ci.checked ? ' checked' : ''}`}
                     />
-                    <span className="text-sm text-stone-700">{ci.item}</span>
-                  </label>
+                    <span className="text-sm text-[#7a6b5a] font-body">{ci.item}</span>
+                  </button>
                 ))}
               </div>
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+            <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">
               {HOURS_LABELS[step]}
             </label>
             <input
@@ -118,17 +119,19 @@ export default function StepModal({
               value={hours || ''}
               onChange={(e) => setHours(parseFloat(e.target.value) || 0)}
               placeholder="0"
-              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+              className="w-full luxury-input rounded-2xl px-4 py-3 text-sm font-body outline-none"
             />
           </div>
         </div>
 
+        <div className="luxury-divider mx-6" />
+
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-end gap-3">
+        <div className="px-6 py-4 flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-100 transition-colors"
+            className="luxury-btn-secondary px-6 py-3 rounded-2xl text-[15px] font-bold border-0 cursor-pointer font-body"
           >
             Cancel
           </button>
@@ -136,7 +139,7 @@ export default function StepModal({
             type="button"
             disabled={isDisabled}
             onClick={handleComplete}
-            className="px-4 py-2 rounded-xl text-sm font-medium bg-[#D49A6A] text-white hover:bg-[#c28a5c] disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            className="luxury-btn text-white px-8 py-3 rounded-2xl text-[15px] font-bold border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed font-body"
           >
             Complete
           </button>

@@ -1,406 +1,140 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { configStore } from '@dios/shared';
-import { useDatabase } from '../hooks/useDatabase';
-import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
-import { logger } from '@dios/shared';
-import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer } from '@react-google-maps/api';
-import { Map, MapPin, Truck, Save, AlertCircle, Loader2 } from 'lucide-react';
-import { useNavigate } from 'react-router';
-import { geocodeMissingOperations } from '../utils/geocodingUtils';
-import Swal from 'sweetalert2';
-import type { Operation, Inspection } from '@dios/shared';
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router'
+import { useAuth } from '../contexts/AuthContext'
+import { useDatabase } from '../hooks/useDatabase'
+import { getSystemConfig } from '../utils/systemConfig'
+import { MapPin } from 'lucide-react'
+import { logger } from '@dios/shared'
+import type { Operation } from '@dios/shared'
+import 'leaflet/dist/leaflet.css'
+import L from 'leaflet'
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 
-const containerStyle = {
-  width: '100%',
-  height: '100%'
-};
-
-const defaultCenter = {
-  lat: 39.8283,
-  lng: -98.5795
-};
+// Fix Leaflet default marker icons for Vite bundler
+delete (L.Icon.Default.prototype as any)._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconUrl: new URL('leaflet/dist/images/marker-icon.png', import.meta.url).href,
+  iconRetinaUrl: new URL('leaflet/dist/images/marker-icon-2x.png', import.meta.url).href,
+  shadowUrl: new URL('leaflet/dist/images/marker-shadow.png', import.meta.url).href,
+})
 
 export default function Routing() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const { findAll: findAllOperations, save: saveOperation } = useDatabase<Operation>({ table: 'operations' });
-  const { save: saveInspection } = useDatabase<Inspection>({ table: 'inspections' });
-  
-  const [apiKey, setApiKey] = useState<string | null>(null);
-  const [operations, setOperations] = useState<Operation[]>([]);
-  const [geocoding, setGeocoding] = useState(false);
-
-  // Trip Bundling State
-  const [selectedOpIds, setSelectedOpIds] = useState<Set<string>>(new Set());
-  const [originAddress, setOriginAddress] = useState('');
-  const [directionsResult, setDirectionsResult] = useState<google.maps.DirectionsResult | null>(null);
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [tripDate, setTripDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const [apiKeyChecked, setApiKeyChecked] = useState(false);
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const { findAll } = useDatabase<Operation>({ table: 'operations' })
+  const [operations, setOperations] = useState<Operation[]>([])
+  const [homebase, setHomebase] = useState<[number, number] | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const config = configStore.getConfig();
-    const key = config?.googleMapsApiKey;
-    if (key && key !== 'dummy') {
-      setApiKey(key);
-    }
-    setApiKeyChecked(true);
-  }, []);
+    if (!user) return
 
-  // Resolve the key once so useJsApiLoader always sees the same value
-  const resolvedKey = apiKey && apiKey !== 'dummy' ? apiKey : '';
-
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: 'google-map-script',
-    googleMapsApiKey: resolvedKey,
-    libraries: ['places']
-  });
-
-  if (!apiKeyChecked) {
-    return null;
-  }
-
-  if (!apiKey) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-stone-500">
-        <AlertCircle size={48} className="text-stone-300 mb-4" />
-        <h2 className="text-xl font-bold text-stone-900 mb-2">Google Maps Not Configured</h2>
-        <p className="max-w-md text-center">Please add your Google Maps API key in the Settings page to use the routing dashboard.</p>
-        <button
-          onClick={() => navigate('/settings')}
-          className="mt-6 bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors"
-        >
-          Go to Settings
-        </button>
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return <div className="p-8 text-center text-red-500">Error loading Google Maps</div>;
-  }
-
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchOperations = async () => {
+    const load = async () => {
       try {
-        const opsData = await findAllOperations();
-        setOperations(opsData);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/operations`);
+        const [ops, config] = await Promise.all([
+          findAll(),
+          getSystemConfig(user.uid),
+        ])
+        setOperations(ops.filter((op) => op.lat != null && op.lng != null))
+
+        const lat = config.homebaseLat as number | undefined
+        const lng = config.homebaseLng as number | undefined
+        if (lat && lng) setHomebase([lat, lng])
+      } catch (err) {
+        logger.error('Failed to load map data:', err)
+      } finally {
+        setLoading(false)
       }
-    };
-
-    fetchOperations();
-  }, [user, findAllOperations]);
-
-  // Geocode operations missing lat/lng — runs in the background via the shared utility
-  useEffect(() => {
-    if (!isLoaded || operations.length === 0 || geocoding || !user) return;
-
-    const runGeocoding = async () => {
-      setGeocoding(true);
-      const updates = await geocodeMissingOperations(user.uid, operations);
-      if (updates.length > 0) {
-        setOperations(prev =>
-          prev.map(op => {
-            const updated = updates.find(u => u.id === op.id);
-            return updated ? { ...op, lat: updated.lat, lng: updated.lng } : op;
-          })
-        );
-      }
-      setGeocoding(false);
-    };
-
-    runGeocoding();
-  }, [isLoaded, operations.length, user]);
-
-  const toggleOperationSelection = (opId: string) => {
-    const newSelected = new Set(selectedOpIds);
-    if (newSelected.has(opId)) {
-      newSelected.delete(opId);
-    } else {
-      newSelected.add(opId);
-    }
-    setSelectedOpIds(newSelected);
-  };
-
-  const saveBundle = async () => {
-    if (!user || !directionsResult) return;
-
-    setIsSaving(true);
-    try {
-      // Calculate total duration and distance
-      let totalDurationSeconds = 0;
-      let totalDistanceMeters = 0;
-
-      const legs = directionsResult.routes[0].legs;
-      legs.forEach(leg => {
-        totalDurationSeconds += leg.duration?.value || 0;
-        totalDistanceMeters += leg.distance?.value || 0;
-      });
-
-      // Convert to hours and miles
-      const totalHours = totalDurationSeconds / 3600;
-      const totalMiles = totalDistanceMeters * 0.000621371;
-
-      const stops = selectedOpIds.size;
-      const distributedMiles = totalMiles / stops;
-
-      const bundleId = `bundle_${Date.now()}`;
-
-      const selectedOps = operations.filter(op => selectedOpIds.has(op.id));
-
-      // Create inspections for selected operations using useDatabase save
-      await Promise.all(selectedOps.map(async (op) => {
-        const newId = crypto.randomUUID();
-        const inspection: Inspection = {
-          id: newId,
-          operationId: op.id,
-          date: tripDate,
-          status: 'Scheduled',
-          isBundled: true,
-          bundleId: bundleId,
-          totalTripDriveTime: totalHours,
-          totalTripStops: stops,
-          milesDriven: Math.round(distributedMiles),
-          calculatedMileage: Math.round(distributedMiles),
-          calculatedDriveTime: 0,
-          baseHoursLog: 0,
-          additionalHoursLog: 0,
-          mealsAndExpenses: 0,
-          perDiemDays: 0,
-          customLineItemAmount: 0,
-          prepHours: 0,
-          onsiteHours: 0,
-          reportHours: 0,
-          prepChecklistData: '[]',
-          reportChecklistData: '[]',
-          updatedAt: new Date().toISOString(),
-          syncStatus: 'pending',
-        };
-        await saveInspection(inspection);
-      }));
-
-      Swal.fire({ text: "Bundle saved successfully! Linked inspections created.", icon: 'success' });
-      navigate('/schedule');
-    } catch (error) {
-      logger.error("Error saving bundle", error);
-      Swal.fire({ text: "Failed to save bundle.", icon: 'error' });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const calculateRoute = async () => {
-    if (!originAddress) {
-      Swal.fire({ text: "Please enter a starting address.", icon: 'info' });
-      return;
-    }
-    if (selectedOpIds.size === 0) {
-      Swal.fire({ text: "Please select at least one operation to visit.", icon: 'info' });
-      return;
     }
 
-    // Verify Google Maps API is loaded before using DirectionsService
-    if (!window.google?.maps?.DirectionsService) {
-      Swal.fire({ text: "Google Maps API is not yet loaded. Please wait a moment and try again.", icon: 'warning' });
-      logger.error('DirectionsService called before Google Maps API loaded');
-      return;
-    }
+    load()
+  }, [user, findAll])
 
-    setIsCalculating(true);
-    const directionsService = new window.google.maps.DirectionsService();
+  // Center on homebase, fallback to US center
+  const center: [number, number] = homebase ?? [43.8014, -91.2396]
 
-    const selectedOps = operations.filter(op => selectedOpIds.has(op.id));
-
-    // Extract waypoints (all selected operations)
-    const waypoints = selectedOps.map(op => ({
-      location: op.address,
-      stopover: true
-    }));
-
-    try {
-      const response = await directionsService.route({
-        origin: originAddress,
-        destination: originAddress, // Round trip
-        waypoints: waypoints,
-        optimizeWaypoints: true,
-        travelMode: window.google.maps.TravelMode.DRIVING,
-      });
-
-      setDirectionsResult(response);
-    } catch (error) {
-      logger.error("Directions request failed", error);
-      Swal.fire({ text: "Failed to calculate route. Please ensure all addresses are valid.", icon: 'error' });
-    } finally {
-      setIsCalculating(false);
-    }
-  };
-
-  if (!isLoaded) {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="animate-spin text-[#D49A6A]" size={32} />
+      <div className="animate-in fade-in duration-500 p-8 text-center text-[#8b7355]">
+        Loading map...
       </div>
-    );
+    )
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] -m-4 sm:-m-8 bg-stone-50 flex flex-col md:flex-row overflow-hidden border-t border-stone-200">
-      {/* Sidebar Placeholder */}
-      <div className="w-full md:w-96 bg-white border-r border-stone-200 flex flex-col z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0 overflow-y-auto">
-        <div className="p-6 border-b border-stone-100 bg-stone-50/50 sticky top-0 z-10 backdrop-blur-xl">
-          <h1 className="text-2xl font-extrabold text-stone-900 tracking-tight flex items-center gap-2">
-            <Map className="text-[#D49A6A]" />
-            Route Planning
-          </h1>
-          <p className="text-sm text-stone-500 mt-1">Select operations to build a trip bundle.</p>
-        </div>
-        <div className="p-6 flex-1 flex flex-col min-h-0">
-          <div className="space-y-4 mb-6 shrink-0">
-            <div>
-              <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Trip Date</label>
-              <input
-                type="date"
-                value={tripDate}
-                onChange={(e) => setTripDate(e.target.value)}
-                className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Start / End Location (Origin)</label>
-              <input
-                type="text"
-                value={originAddress}
-                onChange={(e) => setOriginAddress(e.target.value)}
-                placeholder="e.g., 123 Main St, City, ST"
-                className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
-              />
-            </div>
+    <div className="animate-in fade-in duration-500">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 luxury-card rounded-2xl flex items-center justify-center">
+            <MapPin size={24} className="text-[#d4a574]" />
           </div>
-
-          <div className="flex-1 flex flex-col min-h-0">
-            <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2 shrink-0">Operations to Visit</label>
-            <div className="flex-1 overflow-y-auto border border-stone-200 rounded-xl bg-stone-50/50">
-              {operations.length === 0 ? (
-                <div className="p-4 text-center text-sm text-stone-500">No operations found.</div>
-              ) : (
-                <div className="divide-y divide-stone-100">
-                  {operations.map(op => (
-                    <label key={op.id} className="flex items-start gap-3 p-3 hover:bg-white cursor-pointer transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={selectedOpIds.has(op.id)}
-                        onChange={() => toggleOperationSelection(op.id)}
-                        className="mt-1 w-4 h-4 text-[#D49A6A] rounded border-stone-300 focus:ring-[#D49A6A]"
-                      />
-                      <div className="min-w-0">
-                        <div className="font-medium text-stone-900 text-sm truncate">{op.name}</div>
-                        <div className="text-xs text-stone-500 truncate">{op.address}</div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-6 space-y-3 shrink-0">
-            <button
-              onClick={calculateRoute}
-              disabled={isCalculating || operations.length === 0}
-              className="w-full bg-stone-900 hover:bg-stone-800 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {isCalculating ? <Loader2 className="animate-spin" size={18} /> : <MapPin size={18} />}
-              Calculate Optimal Route
-            </button>
-
-            {directionsResult && (
-              <div className="pt-4 border-t border-stone-200">
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div className="bg-stone-50 p-3 rounded-xl border border-stone-100">
-                    <div className="text-xs text-stone-500 font-bold uppercase tracking-wider mb-1">Total Distance</div>
-                    <div className="text-lg font-bold text-stone-900">
-                      {Math.round(directionsResult.routes[0].legs.reduce((acc, leg) => acc + (leg.distance?.value || 0), 0) * 0.000621371)} mi
-                    </div>
-                  </div>
-                  <div className="bg-stone-50 p-3 rounded-xl border border-stone-100">
-                    <div className="text-xs text-stone-500 font-bold uppercase tracking-wider mb-1">Total Time</div>
-                    <div className="text-lg font-bold text-stone-900">
-                      {Math.round(directionsResult.routes[0].legs.reduce((acc, leg) => acc + (leg.duration?.value || 0), 0) / 3600 * 10) / 10} hrs
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={saveBundle}
-                  disabled={isSaving}
-                  className="w-full bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                  Save Trip Bundle
-                </button>
-              </div>
-            )}
+          <div>
+            <h1 className="font-serif-display text-[36px] font-semibold text-[#2a2420] tracking-tight">Map</h1>
+            <p className="text-[#8b7355] text-sm font-medium mt-1">
+              {operations.length} operator{operations.length !== 1 ? 's' : ''} with locations
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Map Area */}
-      <div className="flex-1 relative bg-stone-100">
-        <GoogleMap
-          mapContainerStyle={containerStyle}
-          center={operations.length > 0 && operations[0].lat && operations[0].lng
-            ? { lat: operations[0].lat, lng: operations[0].lng }
-            : defaultCenter}
-          zoom={operations.length > 0 ? 8 : 4}
-          options={{
-            zoomControl: true,
-            streetViewControl: false,
-            mapTypeControl: false,
-            fullscreenControl: false,
-            styles: [
-              {
-                featureType: "poi",
-                elementType: "labels",
-                stylers: [{ visibility: "off" }]
-              }
-            ]
-          }}
+      <div className="luxury-card rounded-[24px] overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
+        <MapContainer
+          center={center}
+          zoom={operations.length === 0 ? 5 : operations.length === 1 ? 10 : 6}
+          style={{ height: '100%', width: '100%' }}
+          scrollWheelZoom={true}
         >
-          {directionsResult && (
-            <DirectionsRenderer
-              directions={directionsResult}
-              options={{
-                suppressMarkers: false,
-                polylineOptions: {
-                  strokeColor: '#D49A6A',
-                  strokeWeight: 5,
-                  strokeOpacity: 0.8
-                }
-              }}
-            />
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          {homebase && (
+            <Marker
+              position={homebase}
+              icon={L.divIcon({
+                className: '',
+                html: '<div style="width:14px;height:14px;border-radius:50%;background:#d4a574;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>',
+                iconSize: [14, 14],
+                iconAnchor: [7, 7],
+              })}
+            >
+              <Popup><strong>Your homebase</strong></Popup>
+            </Marker>
           )}
-
-          {!directionsResult && operations.map(op => {
-            if (op.lat && op.lng) {
-              return (
-                <Marker
-                  key={op.id}
-                  position={{ lat: op.lat, lng: op.lng }}
-                  title={op.name}
-                />
-              );
-            }
-            return null;
-          })}
-        </GoogleMap>
+          {operations.map((op) => (
+            <Marker key={op.id} position={[op.lat!, op.lng!]}>
+              <Popup>
+                <div style={{ minWidth: 160 }}>
+                  <strong style={{ fontSize: 14 }}>{op.name}</strong>
+                  {op.address && (
+                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>{op.address}</div>
+                  )}
+                  {op.operationType && (
+                    <div style={{ fontSize: 11, color: '#999', marginTop: 2, textTransform: 'capitalize' }}>
+                      {op.operationType}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => navigate(`/operations/${op.id}`)}
+                    style={{
+                      marginTop: 8,
+                      fontSize: 12,
+                      color: '#d4a574',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 0,
+                      fontWeight: 600,
+                    }}
+                  >
+                    View operator →
+                  </button>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
       </div>
     </div>
-  );
+  )
 }

@@ -1,1 +1,249 @@
 @import "tailwindcss";
+
+/* Luxury design system — base defaults */
+body {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+}
+
+.font-serif-display {
+  font-family: 'Cormorant Garamond', serif;
+}
+
+.font-body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+/* Ambient lighting overlay for setup/onboarding screens */
+.luxury-ambient {
+  background: linear-gradient(135deg, #f5f1ed 0%, #ebe5df 100%);
+  position: relative;
+}
+
+.luxury-ambient::before {
+  content: '';
+  position: fixed;
+  top: 10%;
+  left: 20%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(212, 165, 116, 0.2) 0%, transparent 70%);
+  filter: blur(60px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.luxury-ambient::after {
+  content: '';
+  position: fixed;
+  bottom: 10%;
+  right: 10%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.4) 0%, transparent 60%);
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Glass card */
+.luxury-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.02),
+    0 8px 16px rgba(0,0,0,0.02),
+    0 16px 32px rgba(0,0,0,0.04),
+    0 32px 64px rgba(139, 94, 60, 0.1),
+    inset 0 1px 1px rgba(255,255,255,0.8);
+}
+
+/* Brand sidebar */
+.luxury-sidebar {
+  background: linear-gradient(160deg, rgba(212, 165, 116, 0.95) 0%, rgba(180, 130, 90, 0.98) 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.luxury-sidebar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23ffffff' fill-opacity='0.05' fill-rule='evenodd'/%3E%3C/svg%3E");
+  opacity: 0.4;
+}
+
+/* Logo orb */
+.luxury-logo-orb {
+  background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.1) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.5);
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.1),
+    inset 0 2px 4px rgba(255,255,255,0.5),
+    inset 0 -2px 4px rgba(0,0,0,0.05);
+}
+
+/* Icon pill */
+.luxury-icon-pill {
+  background: linear-gradient(135deg, #faf8f5 0%, #f0ebe5 100%);
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.02),
+    0 4px 8px rgba(0,0,0,0.02),
+    inset 0 1px 1px rgba(255,255,255,0.8);
+  border: 1px solid rgba(212, 165, 116, 0.2);
+}
+
+/* Folder card */
+.luxury-folder-card {
+  background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(250,248,245,0.9) 100%);
+  border: 1px solid rgba(212, 165, 116, 0.25);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.02),
+    0 4px 12px rgba(0,0,0,0.03),
+    0 8px 24px rgba(139, 94, 60, 0.06);
+}
+
+.luxury-folder-card:hover {
+  border-color: rgba(212, 165, 116, 0.5);
+}
+
+/* Option card (glass effect) */
+.luxury-option {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.02),
+    0 4px 12px rgba(0,0,0,0.02),
+    inset 0 1px 1px rgba(255,255,255,0.8);
+}
+
+.luxury-option:hover {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(212, 165, 116, 0.4);
+}
+
+.luxury-option.active {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: #d4a574;
+  border-width: 2px;
+  box-shadow:
+    0 4px 20px rgba(212, 165, 116, 0.15),
+    inset 0 1px 1px rgba(255,255,255,1);
+}
+
+/* Check orb */
+.luxury-check-orb {
+  background: linear-gradient(135deg, #f5f1ed 0%, #ebe5df 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(0,0,0,0.05),
+    0 1px 2px rgba(255,255,255,1);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  transition: all 0.3s ease;
+}
+
+.luxury-check-orb.checked {
+  background: linear-gradient(135deg, #d4a574 0%, #c9956b 100%);
+  border-color: transparent;
+  box-shadow:
+    0 4px 12px rgba(212, 165, 116, 0.3),
+    inset 0 1px 1px rgba(255,255,255,0.3);
+}
+
+/* Luxury button */
+.luxury-btn {
+  background: linear-gradient(135deg, #d4a574 0%, #c9956b 50%, #b8845f 100%);
+  box-shadow:
+    0 4px 12px rgba(212, 165, 116, 0.3),
+    0 8px 24px rgba(212, 165, 116, 0.2),
+    inset 0 1px 1px rgba(255,255,255,0.3),
+    inset 0 -1px 1px rgba(0,0,0,0.1);
+}
+
+.luxury-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Luxury secondary button */
+.luxury-btn-secondary {
+  transition: all 0.3s ease;
+}
+
+.luxury-btn-secondary:hover {
+  background: rgba(212, 165, 116, 0.08);
+}
+
+/* Luxury divider */
+.luxury-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(212, 165, 116, 0.3), transparent);
+  position: relative;
+}
+
+/* Luxury input */
+.luxury-input {
+  background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(250,248,245,0.9) 100%);
+  border: 1px solid rgba(212, 165, 116, 0.2);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.02),
+    inset 0 1px 1px rgba(255,255,255,0.8);
+  transition: all 0.3s ease;
+}
+
+.luxury-input:focus {
+  background: white;
+  border-color: rgba(212, 165, 116, 0.5);
+  box-shadow:
+    0 0 0 4px rgba(212, 165, 116, 0.1),
+    0 1px 2px rgba(0,0,0,0.02),
+    inset 0 1px 1px rgba(255,255,255,0.8);
+  outline: none;
+}
+
+/* Modal glass backdrop */
+.luxury-modal-backdrop {
+  background: rgba(42, 36, 32, 0.4);
+  backdrop-filter: blur(12px) saturate(120%);
+}
+
+/* Modal glass card */
+.luxury-modal-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.02),
+    0 8px 16px rgba(0,0,0,0.04),
+    0 24px 48px rgba(139, 94, 60, 0.1),
+    inset 0 1px 1px rgba(255,255,255,0.8);
+}
+
+/* Content chamber subtle radial */
+.luxury-content::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle at top right, rgba(212, 165, 116, 0.08), transparent 70%);
+  pointer-events: none;
+}
+
+/* Progress ring styles */
+.ring-bg {
+  fill: none;
+  stroke: rgba(255,255,255,0.2);
+  stroke-width: 3;
+}
+
+.ring-progress {
+  fill: none;
+  stroke: white;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 283;
+  transition: stroke-dashoffset 1s ease;
+}

@@ -9,7 +9,7 @@ export default function SyncIndicator() {
   const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
-    if (!isElectron) return
+    if (!isElectron()) return
 
     const check = async () => {
       const online = await window.electronAPI!.isOnline()
@@ -32,7 +32,7 @@ export default function SyncIndicator() {
     return () => clearInterval(interval)
   }, [])
 
-  if (!isElectron) return null
+  if (!isElectron()) return null
 
   const config: Record<SyncVisualState, { color: string; icon: React.ReactNode; label: string }> = {
     synced: { color: 'text-green-500', icon: <Cloud className="w-4 h-4" />, label: 'Synced' },

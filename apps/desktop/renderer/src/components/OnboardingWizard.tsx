@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabase } from '../hooks/useDatabase';
-import { db } from '@dios/shared/firebase';
-import { doc, setDoc } from 'firebase/firestore';
-// Note: system_settings/config is a special document path, keeping raw Firestore for this
-// Note: Agency creation now uses useDatabase hook
+import { saveSystemConfig } from '../utils/systemConfig';
 import { geocodeAddress } from '../utils/geocodingUtils';
 import { logger } from '@dios/shared';
 import type { Agency } from '@dios/shared';
-import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
+import { ArrowRight, ArrowLeft } from 'lucide-react';
 import RateConfigSection from './RateConfigSection';
-import SignatureEditor from './SignatureEditor';
+import LeafLogo from './LeafLogo';
 import Swal from 'sweetalert2';
 
 interface OnboardingWizardProps {
@@ -18,16 +15,23 @@ interface OnboardingWizardProps {
   onComplete: () => void;
 }
 
-const STEPS = ['Welcome', 'Address', 'Signature', 'First Agency', 'Done'];
+const STEPS = ['Welcome', 'Address', 'First Agency', 'Done'];
 
-function buildDefaultSignature(name: string, title: string, biz: string, phone: string, email: string): string {
-  const parts: string[] = [];
-  if (name) parts.push(`<b>${name}</b>`);
-  if (title) parts.push(title);
-  if (biz) parts.push(biz);
-  if (phone) parts.push(phone);
-  if (email) parts.push(`<a href="mailto:${email}">${email}</a>`);
-  return parts.join('<br/>');
+function ProgressRing({ current, total }: { current: number; total: number }) {
+  const circumference = 2 * Math.PI * 45;
+  const offset = circumference - (current / total) * circumference;
+
+  return (
+    <div className="relative">
+      <svg width="100" height="100" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)', filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.1))' }}>
+        <circle className="ring-bg" cx="50" cy="50" r="45" />
+        <circle className="ring-progress" cx="50" cy="50" r="45" style={{ strokeDashoffset: offset }} />
+      </svg>
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xs font-bold text-white tracking-widest">
+        {current}/{total}
+      </div>
+    </div>
+  );
 }
 
 export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizardProps) {
@@ -36,12 +40,12 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
-  // Step 1: Welcome
+  // Step 0: Welcome
   const [businessName, setBusinessName] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [ownerTitle, setOwnerTitle] = useState('');
 
-  // Step 2: Address
+  // Step 1: Address
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
@@ -49,10 +53,7 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
 
-  // Step 3: Signature
-  const [signature, setSignature] = useState('');
-
-  // Step 4: Agency
+  // Step 2: Agency
   const [agencyName, setAgencyName] = useState('');
   const [agencyBillingEmail, setAgencyBillingEmail] = useState('');
   const [agencyContactName, setAgencyContactName] = useState('');
@@ -67,9 +68,6 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
   const [perDiemRate, setPerDiemRate] = useState(0);
 
   const handleNext = () => {
-    if (step === 2 && !signature) {
-      setSignature(buildDefaultSignature(ownerName, ownerTitle, businessName, phone, email));
-    }
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
   };
 
@@ -80,7 +78,6 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
     setSaving(true);
 
     try {
-      // Save business profile
       const fullAddress = [address, city, state, zip].filter(Boolean).join(', ');
       let homebaseLat: number | undefined;
       let homebaseLng: number | undefined;
@@ -88,16 +85,13 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
       if (fullAddress) {
         try {
           const coords = await geocodeAddress(fullAddress);
-          if (coords) {
-            homebaseLat = coords.lat;
-            homebaseLng = coords.lng;
-          }
+          if (coords) { homebaseLat = coords.lat; homebaseLng = coords.lng; }
         } catch (err) {
           logger.error('Geocoding failed during onboarding:', err);
         }
       }
 
-      await setDoc(doc(db, `users/${user.uid}/system_settings/config`), {
+      const profileData: Record<string, unknown> = {
         businessName,
         ownerName,
         ownerTitle,
@@ -108,17 +102,17 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
         businessPhone: phone,
         businessEmail: email,
         irsMileageRate: 0.70,
-        emailSignatureHtml: signature || buildDefaultSignature(ownerName, ownerTitle, businessName, phone, email),
-        homebaseLat,
-        homebaseLng,
         onboardingCompleted: true,
-      });
+      };
+      if (homebaseLat !== undefined) profileData.homebaseLat = homebaseLat;
+      if (homebaseLng !== undefined) profileData.homebaseLng = homebaseLng;
 
-      // Create first agency if name provided (using useDatabase)
+      await saveSystemConfig(user.uid, profileData);
+
+      // Create first agency if name provided
       if (agencyName.trim()) {
-        const newId = crypto.randomUUID();
         const newAgency: Agency = {
-          id: newId,
+          id: crypto.randomUUID(),
           name: agencyName.trim(),
           billingAddress: '',
           isFlatRate,
@@ -173,8 +167,7 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
       onComplete();
     } catch (error) {
       logger.error('Onboarding save failed:', error);
-      localStorage.setItem('dios_onboarding_completed', 'true');
-      onComplete();
+      Swal.fire({ text: 'Failed to save profile. Please try again or check your connection.', icon: 'error' });
     } finally {
       setSaving(false);
     }
@@ -182,191 +175,218 @@ export default function OnboardingWizard({ isOpen, onComplete }: OnboardingWizar
 
   if (!isOpen) return null;
 
-  const inputClass = 'w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all outline-none';
-  const labelClass = 'block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2';
+  const inputClass = 'w-full luxury-input rounded-2xl px-4 py-3 text-sm font-body outline-none';
+  const labelClass = 'block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body';
+
+  const stepTitle = (() => {
+    if (step === 0) return { main: 'Welcome to', sub: 'DIOS Studio' };
+    if (step === 1) return { main: 'Your business', sub: 'address' };
+    if (step === 2) return { main: 'First certifying', sub: 'agency' };
+    return { main: 'You\'re all', sub: 'set!' };
+  })();
+
+  const stepDescription = (() => {
+    if (step === 0) return 'Let\'s set up your business profile. You can update everything later in Settings.';
+    if (step === 1) return 'This sets your homebase for distance and mileage calculations to each operator.';
+    if (step === 2) return 'Add the first certifying agency you work with. You can add more in Settings.';
+    return 'Your business profile is ready. Click Get Started to save and open the app.';
+  })();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl shadow-xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Progress */}
-        <div className="px-6 pt-6 pb-3">
-          <div className="flex gap-1">
-            {STEPS.map((_, i) => (
-              <div
-                key={i}
-                className={`flex-1 h-1.5 rounded-full transition-colors ${
-                  i <= step ? 'bg-[#D49A6A]' : 'bg-stone-200'
-                }`}
-              />
-            ))}
+    <div className="fixed inset-0 z-50 luxury-modal-backdrop flex items-center justify-center p-4 sm:p-6 font-body">
+      <div className="luxury-card rounded-[40px] w-full max-w-[840px] overflow-hidden grid grid-cols-1 md:grid-cols-[260px_1fr] max-h-[92vh]">
+
+        {/* Brand sidebar */}
+        <div className="luxury-sidebar px-8 py-12 flex flex-col items-center text-center border-r border-white/30">
+          <div className="luxury-logo-orb w-16 h-16 rounded-full flex items-center justify-center mb-6 relative z-10">
+            <LeafLogo size={28} fill="white" className="drop-shadow-md" />
           </div>
-          <p className="text-xs text-stone-400 mt-2">Step {step + 1} of {STEPS.length}</p>
+          <div className="relative z-10">
+            <h1 className="font-serif-display text-3xl font-semibold text-white tracking-wide" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
+              DIOS
+            </h1>
+            <span className="text-[10px] tracking-[0.25em] uppercase text-white/85 font-semibold">
+              Business Setup
+            </span>
+          </div>
+          <div className="mt-auto relative z-10 hidden md:block">
+            <ProgressRing current={step + 1} total={STEPS.length} />
+          </div>
         </div>
 
-        <div className="p-6 overflow-y-auto flex-1">
-          {step === 0 && (
-            <div className="space-y-4">
-              <h2 className="text-2xl font-bold text-stone-900">Welcome to DIOS Studio</h2>
-              <p className="text-sm text-stone-500">Let's set up your business profile.</p>
-              <div>
-                <label className={labelClass}>Business Name</label>
-                <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} className={inputClass} placeholder="My Inspection Co." />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelClass}>Your Name</label>
-                  <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} className={inputClass} placeholder="John Doe" />
-                </div>
-                <div>
-                  <label className={labelClass}>Title</label>
-                  <input value={ownerTitle} onChange={(e) => setOwnerTitle(e.target.value)} className={inputClass} placeholder="Inspector" />
-                </div>
-              </div>
-            </div>
-          )}
+        {/* Content */}
+        <div className="luxury-content relative flex flex-col overflow-hidden">
+          <div className="px-10 pt-10 pb-4 shrink-0">
+            <h2 className="font-serif-display text-[36px] font-semibold text-[#2a2420] leading-tight tracking-tight mb-2">
+              {stepTitle.main}<br />{stepTitle.sub}
+            </h2>
+            <p className="text-[15px] text-[#8b7355] leading-relaxed font-medium max-w-[90%]">
+              {stepDescription}
+            </p>
+          </div>
 
-          {step === 1 && (
-            <div className="space-y-4">
-              <h2 className="text-2xl font-bold text-stone-900">Your Address</h2>
-              <p className="text-sm text-stone-500">This sets your homebase for distance calculations.</p>
-              <div>
-                <label className={labelClass}>Street Address</label>
-                <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputClass} placeholder="123 Main St" />
-              </div>
-              <div className="grid grid-cols-3 gap-4">
+          <div className="px-10 pb-6 overflow-y-auto flex-1">
+            {step === 0 && (
+              <div className="space-y-5 animate-in fade-in duration-300">
                 <div>
-                  <label className={labelClass}>City</label>
-                  <input value={city} onChange={(e) => setCity(e.target.value)} className={inputClass} />
+                  <label className={labelClass}>Business Name</label>
+                  <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} className={inputClass} placeholder="My Inspection Co." />
                 </div>
-                <div>
-                  <label className={labelClass}>State</label>
-                  <input value={state} onChange={(e) => setState(e.target.value)} className={inputClass} />
-                </div>
-                <div>
-                  <label className={labelClass}>ZIP</label>
-                  <input value={zip} onChange={(e) => setZip(e.target.value)} className={inputClass} />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>Your Name</label>
+                    <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} className={inputClass} placeholder="Jane Smith" />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Title</label>
+                    <input value={ownerTitle} onChange={(e) => setOwnerTitle(e.target.value)} className={inputClass} placeholder="Organic Inspector" />
+                  </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelClass}>Phone</label>
-                  <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} placeholder="(555) 555-5555" />
-                </div>
-                <div>
-                  <label className={labelClass}>Email</label>
-                  <input value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} placeholder="you@example.com" />
-                </div>
-              </div>
-            </div>
-          )}
+            )}
 
-          {step === 2 && (
-            <div className="space-y-4">
-              <h2 className="text-2xl font-bold text-stone-900">Email Signature</h2>
-              <p className="text-sm text-stone-500">This will appear at the bottom of your invoice emails.</p>
-              <SignatureEditor
-                value={signature || buildDefaultSignature(ownerName, ownerTitle, businessName, phone, email)}
-                onChange={setSignature}
-              />
-            </div>
-          )}
+            {step === 1 && (
+              <div className="space-y-5 animate-in fade-in duration-300">
+                <div>
+                  <label className={labelClass}>Street Address</label>
+                  <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputClass} placeholder="123 Main St" />
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className={labelClass}>City</label>
+                    <input value={city} onChange={(e) => setCity(e.target.value)} className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>State</label>
+                    <input value={state} onChange={(e) => setState(e.target.value)} className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>ZIP</label>
+                    <input value={zip} onChange={(e) => setZip(e.target.value)} className={inputClass} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>Phone</label>
+                    <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} placeholder="(555) 555-5555" />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Email</label>
+                    <input value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} placeholder="you@example.com" />
+                  </div>
+                </div>
+              </div>
+            )}
 
-          {step === 3 && (
-            <div className="space-y-4">
-              <h2 className="text-2xl font-bold text-stone-900">First Agency</h2>
-              <p className="text-sm text-stone-500">Set up your first agency, or skip to add later.</p>
-              <div>
-                <label className={labelClass}>Agency Name</label>
-                <input value={agencyName} onChange={(e) => setAgencyName(e.target.value)} className={inputClass} placeholder="e.g., MCIA" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            {step === 2 && (
+              <div className="space-y-5 animate-in fade-in duration-300">
                 <div>
-                  <label className={labelClass}>Billing Contact</label>
-                  <input value={agencyContactName} onChange={(e) => setAgencyContactName(e.target.value)} className={inputClass} />
+                  <label className={labelClass}>Agency Name</label>
+                  <input value={agencyName} onChange={(e) => setAgencyName(e.target.value)} className={inputClass} placeholder="e.g., MCIA, CCOF, Oregon Tilth" />
                 </div>
-                <div>
-                  <label className={labelClass}>Billing Email</label>
-                  <input value={agencyBillingEmail} onChange={(e) => setAgencyBillingEmail(e.target.value)} className={inputClass} />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>Billing Contact</label>
+                    <input value={agencyContactName} onChange={(e) => setAgencyContactName(e.target.value)} className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Billing Email</label>
+                    <input value={agencyBillingEmail} onChange={(e) => setAgencyBillingEmail(e.target.value)} className={inputClass} />
+                  </div>
                 </div>
+                {agencyName.trim() && (
+                  <RateConfigSection
+                    isFlatRate={isFlatRate}
+                    flatRateAmount={flatRateAmount}
+                    flatRateIncludedHours={flatRateIncludedHours}
+                    flatRateOverageRate={flatRateOverageRate}
+                    hourlyRate={hourlyRate}
+                    driveTimeHourlyRate={driveTimeHourlyRate}
+                    mileageReimbursed={mileageReimbursed}
+                    mileageRate={mileageRate}
+                    perDiemRate={perDiemRate}
+                    defaultLineItems={[]}
+                    onChange={(field, value) => {
+                      const setters: Record<string, (v: any) => void> = {
+                        isFlatRate: setIsFlatRate,
+                        flatRateAmount: setFlatRateAmount,
+                        flatRateIncludedHours: setFlatRateIncludedHours,
+                        flatRateOverageRate: setFlatRateOverageRate,
+                        hourlyRate: setHourlyRate,
+                        driveTimeHourlyRate: setDriveTimeHourlyRate,
+                        mileageReimbursed: setMileageReimbursed,
+                        mileageRate: setMileageRate,
+                        perDiemRate: setPerDiemRate,
+                      };
+                      if (setters[field]) setters[field](value);
+                    }}
+                    onLineItemsChange={() => {}}
+                  />
+                )}
               </div>
-              {agencyName.trim() && (
-                <RateConfigSection
-                  isFlatRate={isFlatRate}
-                  flatRateAmount={flatRateAmount}
-                  flatRateIncludedHours={flatRateIncludedHours}
-                  flatRateOverageRate={flatRateOverageRate}
-                  hourlyRate={hourlyRate}
-                  driveTimeHourlyRate={driveTimeHourlyRate}
-                  mileageReimbursed={mileageReimbursed}
-                  mileageRate={mileageRate}
-                  perDiemRate={perDiemRate}
-                  defaultLineItems={[]}
-                  onChange={(field, value) => {
-                    const setters: Record<string, (v: any) => void> = {
-                      isFlatRate: setIsFlatRate,
-                      flatRateAmount: setFlatRateAmount,
-                      flatRateIncludedHours: setFlatRateIncludedHours,
-                      flatRateOverageRate: setFlatRateOverageRate,
-                      hourlyRate: setHourlyRate,
-                      driveTimeHourlyRate: setDriveTimeHourlyRate,
-                      mileageReimbursed: setMileageReimbursed,
-                      mileageRate: setMileageRate,
-                      perDiemRate: setPerDiemRate,
-                    };
-                    if (setters[field]) setters[field](value);
-                  }}
-                  onLineItemsChange={() => {}}
-                />
+            )}
+
+            {step === 3 && (
+              <div className="flex flex-col items-center justify-center py-8 animate-in fade-in duration-300">
+                <div className="luxury-check-orb checked w-16 h-16 rounded-full flex items-center justify-center mb-5">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+                <p className="text-sm text-[#7a6b5a] max-w-sm mx-auto text-center font-medium leading-relaxed">
+                  Click <strong>Get Started</strong> to save and open the app. You can update everything in <strong>Settings</strong> at any time.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-10 py-5 flex justify-between items-center shrink-0" style={{
+            borderTop: '1px solid rgba(212, 165, 116, 0.15)',
+            background: 'linear-gradient(135deg, rgba(250,248,245,0.5) 0%, rgba(255,255,255,0.5) 100%)',
+          }}>
+            <div>
+              {step > 0 && step < 3 && (
+                <button onClick={handleBack} className="luxury-btn-secondary flex items-center gap-1.5 text-sm font-semibold text-[#7a6b5a] px-3 py-2 rounded-xl">
+                  <ArrowLeft size={16} /> Back
+                </button>
               )}
             </div>
-          )}
-
-          {step === 4 && (
-            <div className="text-center space-y-4 py-8">
-              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
-                <Check size={32} className="text-emerald-600" />
-              </div>
-              <h2 className="text-2xl font-bold text-stone-900">All Set!</h2>
-              <p className="text-sm text-stone-500 max-w-sm mx-auto">
-                Your business profile is ready. You can always update these settings later.
-              </p>
+            <div className="flex items-center gap-3">
+              {step > 0 && step < 3 && (
+                <button
+                  onClick={handleNext}
+                  className="text-sm text-[#a89b8c] hover:text-[#7a6b5a] transition-colors font-medium px-3 py-2"
+                >
+                  Skip
+                </button>
+              )}
+              {step < 3 ? (
+                <button
+                  onClick={handleNext}
+                  className="luxury-btn text-white px-8 py-4 rounded-2xl text-[15px] font-bold tracking-wide flex items-center gap-3 border-0 cursor-pointer"
+                >
+                  Next <ArrowRight size={18} strokeWidth={2.5} />
+                </button>
+              ) : (
+                <button
+                  onClick={handleFinish}
+                  disabled={saving}
+                  className="luxury-btn text-white px-8 py-4 rounded-2xl text-[15px] font-bold tracking-wide flex items-center gap-3 border-0 cursor-pointer"
+                >
+                  {saving ? (
+                    <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Saving...</>
+                  ) : (
+                    <>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      Get Started
+                    </>
+                  )}
+                </button>
+              )}
             </div>
-          )}
-        </div>
-
-        <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-between items-center shrink-0">
-          <div>
-            {step > 0 && step < 4 && (
-              <button onClick={handleBack} className="flex items-center gap-1.5 text-sm font-medium text-stone-500 hover:text-stone-700 transition-colors">
-                <ArrowLeft size={16} /> Back
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {step < 4 && (
-              <button
-                onClick={() => { setStep(4); }}
-                className="text-sm text-stone-400 hover:text-stone-600 transition-colors"
-              >
-                Skip
-              </button>
-            )}
-            {step < 4 ? (
-              <button
-                onClick={handleNext}
-                className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-5 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
-              >
-                Next <ArrowRight size={16} />
-              </button>
-            ) : (
-              <button
-                onClick={handleFinish}
-                disabled={saving}
-                className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : 'Get Started'}
-              </button>
-            )}
           </div>
         </div>
       </div>

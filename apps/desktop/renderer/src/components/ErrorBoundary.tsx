@@ -1,4 +1,4 @@
-import { Component, ErrorInfo, ReactNode } from 'react'
+import { Component, ErrorInfo, ReactNode, useEffect } from 'react'
 import { logger } from '@dios/shared'
 import { RefreshCw } from 'lucide-react'
 
@@ -49,4 +49,20 @@ export default class ErrorBoundary extends Component<Props, State> {
 
     return this.props.children
   }
+}
+
+/**
+ * Hook that registers a global unhandledrejection listener so async errors
+ * that escape React's render cycle are at least logged.
+ */
+export function useGlobalErrorHandler() {
+  useEffect(() => {
+    const handler = (event: PromiseRejectionEvent) => {
+      logger.error('Unhandled promise rejection:', event.reason)
+      // Prevent the browser from logging a redundant console error
+      event.preventDefault()
+    }
+    window.addEventListener('unhandledrejection', handler)
+    return () => window.removeEventListener('unhandledrejection', handler)
+  }, [])
 }

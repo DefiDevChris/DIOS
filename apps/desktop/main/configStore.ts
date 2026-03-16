@@ -13,6 +13,8 @@ interface SyncConfig {
   driveToken: string
   userId: string
   projectId: string
+  refreshToken?: string
+  apiKey?: string
 }
 
 const CONFIG_FILE_NAME = 'sync-config.json'
@@ -25,9 +27,14 @@ export async function loadSyncConfig(): Promise<SyncConfig | null> {
   try {
     const configPath = getConfigPath()
     const data = await fs.readFile(configPath, 'utf-8')
-    const config = JSON.parse(data) as SyncConfig
-    logger.info('Sync config loaded from disk for user:', config.userId)
-    return config
+    try {
+      const config = JSON.parse(data) as SyncConfig
+      logger.info('Sync config loaded from disk for user:', config.userId)
+      return config
+    } catch (parseError) {
+      logger.error('Corrupted sync config file, resetting:', parseError)
+      return null
+    }
   } catch (error) {
     // File doesn't exist or is invalid - return null
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {

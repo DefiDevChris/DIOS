@@ -2,11 +2,9 @@
 
 **Inspection Management Platform for Independent Inspectors**
 
-DIOS Studio is a local-first, cloud-backed desktop application built for certified organic inspectors (and any independent field inspector) to manage the business side of their work. It handles the full workflow — agencies, operators (farms, handlers, processors), inspection scheduling, route planning, invoicing, expense tracking, document management, and tax reporting.
+DIOS Studio is a local-first desktop application built for certified organic inspectors (and any independent field inspector) to manage the business side of their work. It handles the full workflow — agencies, operators (farms, handlers, processors), inspection scheduling, route planning, invoicing, expense tracking, document management, and tax reporting.
 
-The system has two components:
-1. **Desktop App** (Electron) — The primary tool. Runs offline, syncs to the cloud when connected.
-2. **Mobile Companion** (Web) — A lightweight upload tool for field use. Snap photos and upload documents from your phone.
+Download, install, and start working. No accounts or API keys required. Sign in with Google to unlock Drive, Gmail, Calendar, and Sheets — your data stays in your own Google account.
 
 ## Who This Is For
 
@@ -20,6 +18,41 @@ Independent inspectors who contract with multiple **certifying agencies** to ins
 - Manage emails, calendar events, and Google Drive files
 - Export billing reports and tax summaries
 
+## Getting Started
+
+### Install
+
+Download the installer for your platform:
+- **Windows** — `.exe` (NSIS installer)
+- **macOS** — `.dmg` (drag to Applications)
+- **Linux** — `.AppImage` (double-click to run)
+
+No Node.js, terminal, or developer tools needed.
+
+### First Launch
+
+1. **Setup Wizard** — Pick a local folder for documents (auto-detected on desktop). Click "Complete Setup." That's it.
+2. **Onboarding** — Enter your business name, address, email signature, and first certifying agency.
+3. **Start working** — Everything runs locally with SQLite. Fully offline-capable.
+
+### Sign in with Google (optional)
+
+Click "Sign in with Google" to connect your Google account. This enables:
+- **Google Sheets** — A master spreadsheet is automatically created and synced with all your inspections, operators, and expenses
+- **Google Drive** — File browser with per-operator folder hierarchy
+- **Gmail** — Invoice emailing with agency templates
+- **Google Calendar** — Inspection scheduling sync
+
+Your data stays in your own Google account. DIOS Studio never stores your data on its servers.
+
+### Optional Features (Settings → Data & Integrations)
+
+| Feature | What it enables | Setup |
+|---------|----------------|-------|
+| **Cloud Sync (Firebase)** | Real-time backup across devices | Create a free Firebase project (step-by-step guide in Settings) |
+
+When Firebase isn't configured, cloud sync features are hidden — the app works fully offline without it.
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -27,13 +60,13 @@ Independent inspectors who contract with multiple **certifying agencies** to ins
 | Desktop | Electron, React 19, TypeScript 5.8, Tailwind CSS 4 |
 | Build | Vite 6 |
 | Local DB | better-sqlite3 (via Electron IPC) |
-| Cloud | Firebase 12 (Auth, Firestore, Storage) |
-| Maps | Google Maps JavaScript API, Directions API, Geocoding API |
+| Cloud (optional) | Firebase 12 (Auth, Firestore, Storage) |
+| Geocoding | Nominatim / OpenStreetMap (free, no API key) |
+| Routing | OSRM — Open Source Routing Machine (free, no API key) |
 | Workspace | Google Drive, Gmail, Calendar, Sheets APIs |
 | OCR | Tesseract.js 7 (in-browser receipt scanning) |
 | PDF | jsPDF 4 (invoices, tax reports) |
 | Charts | Recharts 3 |
-| Calendar | React Big Calendar |
 
 ## Features
 
@@ -41,35 +74,45 @@ Independent inspectors who contract with multiple **certifying agencies** to ins
 - **Operators** — Manage farms, handlers, and businesses you inspect. Track contacts, addresses, status, and link to certifying agencies. CSV import supported.
 - **6-Step Inspection Workflow** — Scheduled → Prep → Inspected → Report → Invoiced → Paid. Each step has a modal collecting hours and checklist data. Visual progress bar on each operator page.
 - **Per-Agency Checklists** — Configurable prep and report checklists per agency. Enable/disable per agency, edit items in Settings.
-- **Distance & Nearby** — Each operator shows exact round-trip mileage and drive time from homebase (Google Directions API). "Nearby" modal shows operators sorted by distance for trip planning.
+- **Distance & Nearby** — Each operator shows round-trip mileage and drive time from homebase (OSRM, no API key needed). "Nearby" modal shows operators sorted by distance for trip planning.
 - **Scheduling** — Calendar view with trip bundling. Sync to Google Calendar.
-- **Routing** — Google Maps-powered multi-stop route optimization with mileage calculation. Manual drag-and-drop reordering when offline.
+- **Routing** — Multi-stop route planner with cumulative mileage and drive time (OSRM). Add stops, reorder, see per-leg and total distances.
 
 ### Billing & Finance
-- **Invoice Editor** — Full editable invoice after Report step. Pre-populated with calculated hours, drive time, mileage, per diem, expenses, and agency default line items. Add/remove/edit line items inline.
-- **Invoice Emailing** — Per-agency email templates with `{variable}` substitution. Gmail compose pre-filled with template, PDF attached. Status → "Sent" on send.
-- **Invoice Statuses** — Not Complete (inspection in progress) / Sent / Paid. Cash-basis revenue tracking (counted in year payment received).
+- **Invoice Editor** — Full editable invoice after Report step. Pre-populated with calculated hours, drive time, mileage, per diem, expenses, and agency default line items.
+- **Invoice Emailing** — Per-agency email templates with `{variable}` substitution. Gmail compose pre-filled with template, PDF attached.
+- **Invoice Statuses** — Not Complete / Sent / Paid. Cash-basis revenue tracking (counted in year payment received).
 - **Per-Agency Billing** — Flat rate toggle, hourly rates, per-type rate overrides, drive time hourly rate, mileage reimbursement toggle, per diem, default line items.
 - **Expenses** — Receipt scanning via OCR (Tesseract.js) with automatic vendor/amount extraction. Manual entry fallback.
-- **Tax Reporting** — Mileage deduction (IRS rate × total miles), cash-basis income, expense categories. Schedule C PDF export. Year selector shows 2026+.
+- **Tax Reporting** — Mileage deduction (IRS rate × total miles), cash-basis income, expense categories. Schedule C PDF export.
 - **Analytics** — KPI dashboards with income/expense breakdowns.
+
+### Google Sheets Auto-Sync
+When signed in with Google, a master spreadsheet ("DIOS Studio - {year}") is automatically created in your Google Drive with three tabs:
+- **Inspections** — One row per inspection: status, agency, operator, dates, hours, mileage, invoice details, payment status (26 columns)
+- **Operators** — All operators: name, agency, type, address, contact info, distance, notes (15 columns)
+- **Expenses** — All expenses: date, vendor, amount, category, notes, receipt indicator (7 columns)
+
+The sheet syncs automatically — rows update on every save, and a full sync runs every 5 minutes. Tabs are protected (read-only) to prevent accidental edits; duplicate the sheet to work with the data.
 
 ### Business Profile & Settings
 - **Onboarding Wizard** — First-run setup: business name, address (geocoded for homebase), email signature, first agency.
 - **Tabbed Settings** — My Business tab, one tab per agency, Add Agency, Data & Integrations.
+- **Data & Integrations** — Toggle-based configuration for Firebase and OAuth (built-in by default) with expandable step-by-step setup guides.
 - **Rich Email Signature** — HTML editor with live preview. Auto-generated from business profile.
 
 ### Documents & Communication
 - **Google Drive** — File browser with organized folder hierarchy per operator and year.
 - **Gmail** — Inbox integration for CRM-linked email management.
-- **Google Sheets** — Data export and spreadsheet integration.
+- **Google Sheets** — Auto-synced master sheet plus on-demand data exports.
 - **Document Upload** — Photos and documents attached to operators, stored locally and backed up to Drive.
 
 ### Offline & Sync
 - **Local-First** — All data stored in local SQLite. The app works fully offline.
 - **Local File Storage** — Documents save to disk (`~/DIOS Studio/[operator]/[year]/`).
-- **Cloud Backup** — Background sync mirrors local changes to Firestore and Google Drive when online.
+- **Cloud Backup** — Background sync mirrors local changes to Firestore and Google Drive when online (requires Firebase setup).
 - **Sync Status** — Visual indicator showing synced/pending/offline state.
+- **Offline Queue** — Failed API calls (Sheets, Drive, Firestore) are queued in IndexedDB and retried automatically when connectivity returns.
 
 ### Mobile Companion
 - Lightweight web app for field use (Firebase Hosting)
@@ -85,77 +128,69 @@ apps/
 │   │   ├── database.ts            # SQLite connection + init
 │   │   ├── schema.ts              # Table definitions + migrations
 │   │   ├── syncEngine.ts          # Background Firestore sync
-│   │   └── ipcHandlers.ts         # IPC bridge for renderer
+│   │   └── preload.ts             # IPC bridge for renderer
 │   └── renderer/                  # React frontend (Vite)
 │       └── src/
 │           ├── App.tsx            # Router, auth guard, onboarding check
 │           ├── contexts/          # AuthContext, BackgroundSyncContext
-│           ├── hooks/             # useDatabase, useFileStorage, useOnlineStatus
-│           ├── lib/               # pdfGenerator, driveSync, localFsSync, syncQueue
-│           ├── utils/             # invoiceCalculator, distanceUtils, templateRenderer, geocoding
+│           ├── hooks/             # useDatabase, useFileStorage, useOnlineStatus, useSheetsSync
+│           ├── lib/               # sheetsSync, sheetsSyncQueue, driveSync, localFsSync, syncQueue
+│           ├── utils/             # addressParser, invoiceCalculator, geocoding, systemConfig
 │           ├── components/        # Reusable UI (see below)
-│           └── pages/             # Route-level pages (17 pages)
+│           └── pages/             # Route-level pages
 ├── mobile/                        # Mobile companion SPA (Vite, Firebase Hosting)
 
 packages/
-└── shared/                        # Shared types, Firebase config, auth logic
-    └── src/types.ts               # Agency, Operation, Inspection, Invoice, etc.
+└── shared/                        # Shared types, config store, Google API client
+    └── src/
+        ├── types.ts               # Agency, Operation, Inspection, Invoice, etc.
+        ├── configStore.ts         # localStorage config with OAuth default
+        ├── constants.ts           # OAuth scopes, default Client ID
+        └── googleApiClient.ts     # Authenticated fetch wrapper with token refresh
 ```
 
-### Key Components (apps/desktop/renderer/src/components/)
+### Key Components
 
 | Component | Purpose |
 |-----------|---------|
+| SetupWizard | Single-screen first-run: folder selection, done |
+| OnboardingWizard | Business profile: name, address, signature, first agency |
 | InspectionProgressBar | 6-step workflow: Scheduled → Prep → Inspected → Report → Invoiced → Paid |
 | StepModal | Checklist + hours modal for Prep/Inspected/Report steps |
 | InvoiceEditor | Full editable invoice with pre-calculated line items |
 | InvoiceEmailModal | Gmail compose with agency template and PDF attachment |
-| BusinessProfileTab | My Business settings (Firestore-backed) |
+| BusinessProfileTab | My Business settings |
 | AgencySettingsTab | Per-agency rates, checklists, email templates |
-| RateConfigSection | Flat/hourly rate toggle with conditional fields |
-| ChecklistEditor | Configurable prep/report checklist items |
 | SignatureEditor | Rich HTML email signature with live preview |
-| StickyNote | Quick note/task creation widget |
-| UnifiedActivityFeed | Combined notes/tasks/activity feed |
 | NearbyOperatorsModal | Distance-sorted nearby operators (Haversine) |
-| OnboardingWizard | First-run setup: business profile, address, signature, first agency |
 
 ## Data Model
 
-All user data lives under `/users/{userId}/` in Firestore (and mirrored in local SQLite):
+All user data lives in local SQLite (and optionally mirrored to Firestore under `/users/{userId}/`):
 
-| Collection | Purpose | Key Fields |
-|-----------|---------|------------|
-| `agencies` | Certifying agencies | name, billingAddress, isFlatRate, flatRateAmount, hourlyRate, driveTimeHourlyRate, mileageReimbursed, mileageRate, perDiemRate, perTypeRatesEnabled, ratesByType, billingEmail, emailTemplate*, prepChecklist*, reportChecklist*, defaultLineItems |
-| `operations` | Operators you inspect | name, agencyId, address, contact, operationType, clientId, lat/lng, cachedDistanceMiles, cachedDriveTimeMinutes |
-| `operation_activities` | Activity log per operator | operationId, type, description, timestamp |
-| `inspections` | Inspection workflow records | operationId, date, status (Scheduled/Prep/Inspected/Report/Invoiced/Paid), prepHours, onsiteHours, reportHours, calculatedMileage, calculatedDriveTime, prepChecklistData, reportChecklistData |
-| `invoices` | Generated invoices | inspectionId, agencyId, operationId, totalAmount, lineItems (JSON), status (Not Complete/Sent/Paid), sentDate, paidDate |
-| `tasks` | Notes & follow-ups | title, status, dueDate, operationId, inspectionId |
+| Table | Purpose | Key Fields |
+|-------|---------|------------|
+| `agencies` | Certifying agencies | name, billingAddress, rates, emailTemplate, checklists, defaultLineItems |
+| `operations` | Operators you inspect | name, agencyId, address, contact, operationType, clientId, lat/lng, cachedDistance |
+| `inspections` | Inspection workflow records | operationId, date, status, prepHours, onsiteHours, reportHours, calculatedMileage, checklistData |
+| `invoices` | Generated invoices | inspectionId, agencyId, totalAmount, lineItems, status (Not Complete/Sent/Paid), paidDate |
+| `expenses` | Business expenses | date, vendor, amount, category, receiptImageUrl, inspectionId |
+| `tasks` | Notes & follow-ups | title, status, dueDate, operationId |
 | `notes` | Quick notes | content, operationId |
-| `expenses` | Business expenses | date, vendor, amount, receipt image, category |
-| `system_settings/config` | Business profile & settings | businessName, ownerName, address, irsMileageRate, emailSignatureHtml, homebaseLat/Lng, onboardingCompleted |
+| `system_settings` | Business profile & settings | businessName, address, irsMileageRate, emailSignatureHtml, homebaseLat/Lng, sheetsSpreadsheetId |
 
-## Getting Started
+## Development
 
 ### Prerequisites
 - Node.js 18+
-- A Firebase project (Auth, Firestore, Storage enabled)
-- A Google Cloud project with APIs enabled: Maps, Geocoding, Directions, Drive, Gmail, Calendar, Sheets
-- An OAuth 2.0 Client ID
 
 ### Setup
-
 ```bash
+git clone <repo-url>
+cd DIOS
 npm install
 npm run dev
 ```
-
-On first launch, the Setup Wizard prompts for Firebase config, Google Maps API key, and OAuth Client ID. Config is stored in `localStorage`.
-
-### Demo Mode
-
-Enter `dummy` as the API key in the Setup Wizard to bypass auth and run with a local demo user.
 
 ### Scripts
 
@@ -170,6 +205,31 @@ Enter `dummy` as the API key in the Setup Wizard to bypass auth and run with a l
 | `npm run test` | Run Vitest test suite |
 | `npm run test:coverage` | Run tests with coverage report |
 | `npm run clean` | Remove dist, dist-electron, out |
+
+### Building Installers
+
+```bash
+cd apps/desktop
+npm run build:electron
+```
+
+Output in `apps/desktop/out/`:
+- Windows: `.exe` (NSIS)
+- macOS: `.dmg`
+- Linux: `.AppImage`
+
+Auto-update is configured via `electron-updater` with GitHub Releases.
+
+### macOS App Icon
+`apps/desktop/scripts/generate-icons.sh` generates platform icons. For macOS `.icns`, run on a Mac with Xcode Command Line Tools.
+
+## Production Notes
+
+### Google OAuth
+The app ships with a built-in OAuth Client ID for Google Workspace access. Users can override this in Settings → Data & Integrations. For production use beyond 100 users, the Google Cloud project must go through [OAuth verification](https://support.google.com/cloud/answer/9110914).
+
+### Demo Mode
+Enter `dummy` as the API key in the Setup Wizard to bypass auth and run with a local demo user.
 
 ## License
 

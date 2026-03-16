@@ -1,45 +1,34 @@
 import { logger } from '@dios/shared';
 
-export interface DistanceResult {
-  distanceMiles: number;
-  durationMinutes: number;
-}
-
 /**
- * Calculates the round-trip driving distance and duration between two
- * coordinates using the Google Maps Directions API.
- * Returns null if the request fails or no route is found.
+ * Calculates one-way driving distance and duration between two coordinates
+ * using the OSRM public routing API. Returns null on failure.
  */
 export async function calculateDistance(
   originLat: number,
   originLng: number,
   destLat: number,
-  destLng: number,
-  apiKey: string
-): Promise<DistanceResult | null> {
+  destLng: number
+): Promise<{ miles: number; minutes: number } | null> {
   try {
     const url =
-      `https://maps.googleapis.com/maps/api/directions/json` +
-      `?origin=${originLat},${originLng}` +
-      `&destination=${destLat},${destLng}` +
-      `&key=${apiKey}`;
+      `https://router.project-osrm.org/route/v1/driving/` +
+      `${originLng},${originLat};${destLng},${destLat}?overview=false`;
 
     const response = await fetch(url);
+    if (!response.ok) return null;
     const data = await response.json();
 
-    if (data.status !== 'OK' || !data.routes?.[0]?.legs?.[0]) {
+    if (data.code !== 'Ok' || !data.routes?.[0]) {
       return null;
     }
 
-    const leg = data.routes[0].legs[0];
-    const distanceMeters = leg.distance.value;
-    const durationSeconds = leg.duration.value;
+    const { distance, duration } = data.routes[0];
 
-    // Convert to miles and minutes, then multiply by 2 for round trip
-    const distanceMiles = (distanceMeters / 1609.344) * 2;
-    const durationMinutes = (durationSeconds / 60) * 2;
-
-    return { distanceMiles, durationMinutes };
+    return {
+      miles: distance * 0.000621371,
+      minutes: duration / 60,
+    };
   } catch (error) {
     logger.error('Distance calculation error:', error);
     return null;

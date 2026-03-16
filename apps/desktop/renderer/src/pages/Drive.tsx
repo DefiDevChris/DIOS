@@ -20,11 +20,11 @@ function getFileIcon(mimeType: string) {
   if (mimeType.includes('image')) return { Icon: Image, bg: 'bg-purple-50', color: 'text-purple-600' };
   if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return { Icon: FileSpreadsheet, bg: 'bg-green-50', color: 'text-green-600' };
   if (mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('word')) return { Icon: FileText, bg: 'bg-blue-50', color: 'text-blue-600' };
-  return { Icon: File, bg: 'bg-stone-50', color: 'text-stone-500' };
+  return { Icon: File, bg: 'bg-[rgba(212,165,116,0.04)]', color: 'text-[#8b7355]' };
 }
 
 export default function Drive() {
-  const { user, googleAccessToken } = useAuth();
+  const { user, googleAccessToken, isLocalUser } = useAuth();
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [folderStack, setFolderStack] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,7 +42,7 @@ export default function Drive() {
   const currentFolderId = folderStack.length > 0 ? folderStack[folderStack.length - 1].id : null;
 
   const listFolder = async (folderId: string, folderName: string) => {
-    if (!token || token === 'dummy') return;
+    if (!token) return;
     setLoading(true);
     setError(null);
     try {
@@ -67,7 +67,7 @@ export default function Drive() {
   };
 
   const loadRoot = async () => {
-    if (!token || token === 'dummy') {
+    if (!token) {
       setError('Please sign in with Google to browse Drive files.');
       return;
     }
@@ -130,7 +130,7 @@ export default function Drive() {
 
   // Auto-load on mount if token is available
   useEffect(() => {
-    if (token && token !== 'dummy' && !initialized) {
+    if (token && !initialized) {
       loadRoot();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -278,14 +278,23 @@ export default function Drive() {
 
   return (
     <div className="animate-in fade-in duration-500">
+      {isLocalUser && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+          <span className="text-amber-500 mt-0.5">⚠️</span>
+          <div>
+            <p className="font-medium text-amber-800">Google Drive requires cloud setup</p>
+            <p className="text-sm text-amber-700 mt-0.5">You're running in local mode. Configure Firebase and Google OAuth in Settings → Data &amp; Integrations to enable Drive access.</p>
+          </div>
+        </div>
+      )}
       <div className="flex justify-between items-end mb-8">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-stone-100">
-            <HardDrive size={24} className="text-[#D49A6A]" />
+          <div className="w-12 h-12 luxury-card rounded-2xl flex items-center justify-center">
+            <HardDrive size={24} className="text-[#d4a574]" />
           </div>
           <div>
-            <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">Google Drive</h1>
-            <p className="text-stone-500 text-sm mt-1">Browse your DIOS Master Inspections Database.</p>
+            <h1 className="font-serif-display text-[36px] font-semibold text-[#2a2420] tracking-tight">Google Drive</h1>
+            <p className="text-[#8b7355] text-sm font-medium mt-1">Browse your DIOS Master Inspections Database.</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -300,7 +309,7 @@ export default function Drive() {
               <button
                 onClick={() => uploadInputRef.current?.click()}
                 disabled={uploading || !token}
-                className="px-4 py-2 bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
+                className="px-4 py-2 luxury-btn text-white rounded-xl text-sm font-bold border-0 cursor-pointer transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
               >
                 {uploading ? (
                   <>
@@ -319,7 +328,7 @@ export default function Drive() {
           <button
             onClick={loadRoot}
             disabled={loading}
-            className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
+            className="px-4 py-2 bg-white border border-[rgba(212,165,116,0.15)] text-[#4a4038] rounded-xl text-sm font-medium hover:bg-[rgba(212,165,116,0.04)] transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
           >
             {loading ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
             {initialized ? 'Refresh' : 'Load Drive Files'}
@@ -350,7 +359,7 @@ export default function Drive() {
           </div>
           <div className="w-full bg-amber-100 rounded-full h-2">
             <div
-              className="bg-[#D49A6A] h-2 rounded-full transition-all duration-200"
+              className="bg-[#d4a574] h-2 rounded-full transition-all duration-200"
               style={{ width: `${uploadProgress}%` }}
             />
           </div>
@@ -358,18 +367,18 @@ export default function Drive() {
       )}
 
       {!initialized && !loading && !error && (
-        <div className="bg-white rounded-3xl p-12 border border-stone-100 shadow-sm flex flex-col items-center justify-center text-center">
-          <div className="w-20 h-20 bg-stone-100 rounded-3xl flex items-center justify-center mb-6">
-            <HardDrive size={36} className="text-stone-400" />
+        <div className="luxury-card rounded-[24px] p-12 flex flex-col items-center justify-center text-center">
+          <div className="w-20 h-20 bg-[rgba(212,165,116,0.06)] rounded-[24px] flex items-center justify-center mb-6">
+            <HardDrive size={36} className="text-[#a89b8c]" />
           </div>
-          <h2 className="text-xl font-bold text-stone-900 mb-2">Connect to Google Drive</h2>
-          <p className="text-stone-500 text-sm max-w-sm mb-6">
+          <h2 className="text-xl font-bold text-[#2a2420] mb-2">Connect to Google Drive</h2>
+          <p className="text-[#8b7355] text-sm max-w-sm mb-6">
             Browse your DIOS inspection files, reports, and receipts stored in Google Drive.
             Sign in with Google and click "Load Drive Files" to get started.
           </p>
           <button
             onClick={loadRoot}
-            className="px-6 py-2.5 bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
+            className="px-6 py-2.5 luxury-btn text-white rounded-xl text-sm font-bold border-0 cursor-pointer transition-colors shadow-sm"
           >
             Load Drive Files
           </button>
@@ -377,25 +386,25 @@ export default function Drive() {
       )}
 
       {loading && !initialized && (
-        <div className="bg-white rounded-3xl p-12 border border-stone-100 shadow-sm flex flex-col items-center justify-center">
-          <Loader size={32} className="animate-spin text-[#D49A6A] mb-4" />
-          <p className="text-stone-500 text-sm">Connecting to Google Drive…</p>
+        <div className="luxury-card rounded-[24px] p-12 flex flex-col items-center justify-center">
+          <Loader size={32} className="animate-spin text-[#d4a574] mb-4" />
+          <p className="text-[#8b7355] text-sm">Connecting to Google Drive…</p>
         </div>
       )}
 
       {initialized && (
-        <div className="bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden">
+        <div className="luxury-card rounded-[24px] overflow-hidden">
           {/* Breadcrumb */}
-          <div className="px-6 py-4 border-b border-stone-100 flex items-center gap-1.5 flex-wrap">
+          <div className="px-6 py-4 border-b border-[rgba(212,165,116,0.12)] flex items-center gap-1.5 flex-wrap">
             {folderStack.map((folder, index) => (
               <span key={folder.id} className="flex items-center gap-1.5">
-                {index > 0 && <span className="text-stone-300 text-sm">/</span>}
+                {index > 0 && <span className="text-[#a89b8c] text-sm">/</span>}
                 <button
                   onClick={() => navigateToStack(index)}
                   className={`text-sm font-medium transition-colors px-1.5 py-0.5 rounded-lg ${
                     index === folderStack.length - 1
-                      ? 'text-stone-900 bg-stone-100 cursor-default'
-                      : 'text-[#D49A6A] hover:text-[#c28a5c] hover:bg-amber-50'
+                      ? 'text-[#2a2420] bg-[rgba(212,165,116,0.06)] cursor-default'
+                      : 'text-[#d4a574] hover:text-[#c28a5c] hover:bg-amber-50'
                   }`}
                 >
                   {folder.name}
@@ -406,24 +415,24 @@ export default function Drive() {
 
           {/* File count */}
           {!loading && (
-            <div className="px-6 py-2 border-b border-stone-50 text-xs text-stone-400">
+            <div className="px-6 py-2 border-b border-[rgba(212,165,116,0.06)] text-xs text-[#a89b8c]">
               {files.length} {files.length === 1 ? 'item' : 'items'}
             </div>
           )}
 
           {/* File List */}
           {loading ? (
-            <div className="py-12 flex items-center justify-center text-stone-500">
+            <div className="py-12 flex items-center justify-center text-[#8b7355]">
               <Loader size={24} className="animate-spin mr-3" /> Loading…
             </div>
           ) : files.length === 0 ? (
             <div className="py-12 text-center">
-              <p className="text-stone-500 text-sm mb-4">This folder is empty.</p>
+              <p className="text-[#8b7355] text-sm mb-4">This folder is empty.</p>
               {currentFolderId && (
                 <button
                   onClick={() => uploadInputRef.current?.click()}
                   disabled={uploading || !token}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#D49A6A]/10 hover:bg-[#D49A6A]/20 text-[#D49A6A] rounded-xl text-sm font-medium transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#d4a574]/10 hover:bg-[#d4a574]/20 text-[#d4a574] rounded-xl text-sm font-medium transition-colors"
                 >
                   <Upload size={15} />
                   Upload a file
@@ -431,13 +440,13 @@ export default function Drive() {
               )}
             </div>
           ) : (
-            <div className="divide-y divide-stone-50">
+            <div className="divide-y divide-[rgba(212,165,116,0.06)]">
               {files.map(file => {
                 const { Icon, bg, color } = getFileIcon(file.mimeType);
                 return (
                   <div
                     key={file.id}
-                    className="flex items-center gap-4 px-6 py-3.5 hover:bg-stone-50 transition-colors group"
+                    className="flex items-center gap-4 px-6 py-3.5 hover:bg-[rgba(212,165,116,0.04)] transition-colors group"
                   >
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${bg}`}>
                       <Icon size={20} className={color} />
@@ -446,14 +455,14 @@ export default function Drive() {
                       {file.mimeType === FOLDER_MIME ? (
                         <button
                           onClick={() => openFolder(file)}
-                          className="text-sm font-medium text-stone-900 hover:text-[#D49A6A] transition-colors truncate block text-left"
+                          className="text-sm font-medium text-[#2a2420] hover:text-[#d4a574] transition-colors truncate block text-left"
                         >
                           {file.name}
                         </button>
                       ) : (
-                        <span className="text-sm font-medium text-stone-900 truncate block">{file.name}</span>
+                        <span className="text-sm font-medium text-[#2a2420] truncate block">{file.name}</span>
                       )}
-                      <div className="text-xs text-stone-400 mt-0.5">
+                      <div className="text-xs text-[#a89b8c] mt-0.5">
                         {formatDate(file.modifiedTime)}{file.size ? ` · ${formatSize(file.size)}` : ''}
                       </div>
                     </div>
@@ -463,7 +472,7 @@ export default function Drive() {
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Open in Google Drive"
-                        className="opacity-0 group-hover:opacity-100 p-2 text-stone-400 hover:text-[#D49A6A] hover:bg-amber-50 rounded-lg transition-all"
+                        className="opacity-0 group-hover:opacity-100 p-2 text-[#a89b8c] hover:text-[#d4a574] hover:bg-amber-50 rounded-lg transition-all"
                       >
                         <ExternalLink size={15} />
                       </a>

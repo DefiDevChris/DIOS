@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import { app } from 'electron'
-import { CREATE_TABLES, migrateSchema } from './schema'
+import { CREATE_TABLES, migrateSchema } from './schema.js'
 
 let dbInstance: Database.Database | null = null
 
@@ -17,7 +17,6 @@ const ALLOWED_TABLES = new Set([
   'operation_activities',
   'system_config',
   'unassigned_uploads',
-  'sync_status',
 ])
 
 function validateTable(table: string): string {
@@ -70,6 +69,24 @@ export function upsert(table: string, record: Record<string, unknown>): void {
   const validTable = validateTable(table)
   const db = getDatabase()
   const now = new Date().toISOString()
+
+  // system_config is a key-value table keyed by 'key' instead of 'id'
+  if (validTable === 'system_config') {
+    if (!record.key || typeof record.key !== 'string') {
+      throw new Error('system_config records must include a "key" field')
+    }
+    const data = { ...record, updatedAt: now }
+    const columns = Object.keys(data).filter((k) => /^[a-zA-Z_]+$/.test(k))
+    const placeholders = columns.map((c) => `@${c}`)
+    const updates = columns.filter((c) => c !== 'key').map((c) => `${c} = @${c}`)
+    db.prepare(`
+      INSERT INTO ${validTable} (${columns.join(', ')})
+      VALUES (${placeholders.join(', ')})
+      ON CONFLICT(key) DO UPDATE SET ${updates.join(', ')}
+    `).run(data)
+    return
+  }
+
   const data = { ...record, updatedAt: now, syncStatus: 'pending' }
   const columns = Object.keys(data).filter((k) => /^[a-zA-Z_]+$/.test(k))
   const placeholders = columns.map((c) => `@${c}`)

@@ -2,13 +2,17 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import type { Agency, Inspection, Operation } from '@dios/shared'
 
 vi.mock('../utils/invoiceCalculator', () => ({
-  calculateInvoiceLineItems: vi.fn(() => ({
+  calculateLiveInvoiceLineItems: vi.fn(() => ({
     lineItems: [
       { name: 'Inspection Fee', amount: 250, details: 'Flat rate' },
       { name: 'Mileage', amount: 35.5, details: '50 mi @ $0.71/mi' },
     ],
     total: 285.5,
   })),
+}))
+
+vi.mock('../utils/invoiceNumbering', () => ({
+  getNextInvoiceNumber: vi.fn(() => 'INV-2026-001'),
 }))
 
 vi.mock('../lib/pdfGenerator', () => ({

@@ -51,7 +51,7 @@ let dbPromise: Promise<IDBPDatabase<SyncDB>> | null = null;
 
 const initDB = () => {
   if (!dbPromise) {
-    dbPromise = openDB<SyncDB>('DOIS_Sync', 2, {
+    dbPromise = openDB<SyncDB>('DIOS_Sync', 2, {
       upgrade(db, oldVersion) {
         // Drop v1 store if upgrading
         if (oldVersion < 2 && db.objectStoreNames.contains('FileQueue')) {

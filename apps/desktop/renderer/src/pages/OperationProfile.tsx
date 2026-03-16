@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabase } from '../hooks/useDatabase';
-import { collection, getDocs, setDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@dios/shared/firebase';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
-import { configStore, logger } from '@dios/shared';
+import { logger } from '@dios/shared';
 import type { Agency, Inspection, Operation, OperationDocument, OperationActivity, ChecklistItem } from '@dios/shared';
 import { uploadToDrive, getOperationDriveFolderUrl } from '../lib/driveSync';
+import { useSheetsSync } from '../hooks/useSheetsSync';
 import { googleApiJson } from '@dios/shared';
 import { getStoredLocalFolder, writeLocalFile } from '../lib/localFsSync';
 import { calculateDistance, formatDistance, formatDriveTime } from '../utils/distanceUtils';
@@ -30,13 +31,14 @@ export default function OperationProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user, googleAccessToken } = useAuth();
+  const { syncInspection } = useSheetsSync();
 
   // Database hooks
   const { findById: findOperationById, save: saveOperation } = useDatabase<Operation>({ table: 'operations' });
   const { findAll: findAllAgencies } = useDatabase<Agency>({ table: 'agencies' });
   const { findAll: findAllDocuments, save: saveDocument } = useDatabase<OperationDocument>({ table: 'operation_documents' });
   const { findAll: findAllActivities, save: saveActivity } = useDatabase<OperationActivity>({ table: 'operation_activities' });
-  const { findAll: findAllInspections } = useDatabase<Inspection>({ table: 'inspections' });
+  const { findAll: findAllInspections, save: saveInspection } = useDatabase<Inspection>({ table: 'inspections' });
   const { findAll: findAllOperations } = useDatabase<Operation>({ table: 'operations' });
 
   const [operation, setOperation] = useState<Operation | null>(null);
@@ -174,11 +176,12 @@ export default function OperationProfile() {
 
     const fetchDistance = async () => {
       try {
-        const config = configStore.getConfig();
-        if (!config?.googleMapsApiKey) return;
-
         // Load homebase from system_settings
-        const settingsDoc = await getDocs(collection(db!, `users/${user.uid}/system_settings`));
+        if (!db) {
+          logger.error('Firestore db is not initialized; skipping distance calculation');
+          return;
+        }
+        const settingsDoc = await getDocs(collection(db, `users/${user.uid}/system_settings`));
         const configDoc = settingsDoc.docs.find((d) => d.id === 'config');
         if (!configDoc) return;
         const settings = configDoc.data();
@@ -190,15 +193,14 @@ export default function OperationProfile() {
           homebaseLat,
           homebaseLng,
           operation.lat!,
-          operation.lng!,
-          config.googleMapsApiKey
+          operation.lng!
         );
         if (!result) return;
 
         await saveOperation({
           ...operation,
-          cachedDistanceMiles: result.distanceMiles,
-          cachedDriveTimeMinutes: result.durationMinutes,
+          cachedDistanceMiles: result.miles,
+          cachedDriveTimeMinutes: result.minutes,
         });
       } catch (error) {
         logger.error('Distance calculation failed:', error);
@@ -257,7 +259,7 @@ export default function OperationProfile() {
 
   const sendTemplatedEmail = async () => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
-    if (!token || token === 'dummy') {
+    if (!token) {
       Swal.fire({ text: 'Please sign in with Google to send emails.', icon: 'info' });
       return;
     }
@@ -311,7 +313,7 @@ export default function OperationProfile() {
 
   const createCalendarEvent = async (inspectionId: string, operationName: string, date: string, scope?: string) => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
-    if (!token || token === 'dummy' || !user) return;
+    if (!token || !user) return;
 
     try {
       const event = {
@@ -333,14 +335,11 @@ export default function OperationProfile() {
       );
       if (response.ok) {
         const data = await response.json();
-        // Save the event ID back to the inspection via raw Firestore for now
-        // (inspection save would require Inspection hook)
-        if (db) {
-          await setDoc(
-            doc(db, `users/${user.uid}/inspections/${inspectionId}`),
-            { googleCalendarEventId: data.id },
-            { merge: true }
-          );
+        // Save the event ID back to the inspection via useDatabase
+        const allInspections = await findAllInspections();
+        const target = allInspections.find(i => i.id === inspectionId);
+        if (target) {
+          await saveInspection({ ...target, googleCalendarEventId: data.id });
         }
       }
     } catch (error) {
@@ -377,10 +376,9 @@ export default function OperationProfile() {
         syncStatus: 'pending',
       };
 
-      // Use raw Firestore for inspections since we don't have inspection save hook in this component
-      if (db) {
-        await setDoc(doc(db, `users/${user.uid}/inspections/${newInspection.id}`), newInspection);
-      }
+      // Use saveInspection via useDatabase (works in both Electron and web)
+      await saveInspection(newInspection);
+      syncInspection(newInspection.id).catch(() => {});
 
       createCalendarEvent(newInspection.id, operation!.name, scheduleDate, operation!.operationType).catch(() => {});
 
@@ -424,12 +422,7 @@ export default function OperationProfile() {
     }
 
     try {
-      // Use raw Firestore for inspection updates since we don't have inspection hook
-      await setDoc(
-        doc(db, `users/${user.uid}/inspections/${currentInspection.id}`),
-        updates,
-        { merge: true }
-      );
+      await saveInspection({ ...currentInspection, ...updates });
       await logActivity('step_complete', `${activeStep} step completed (${data.hours} hours)`);
       setActiveStep(null);
 
@@ -461,22 +454,20 @@ export default function OperationProfile() {
 
   // Auto-calculate mileage for current inspection
   useEffect(() => {
-    if (!user || !currentInspection || !operation || !db) return;
+    if (!user || !currentInspection || !operation) return;
     if (currentInspection.calculatedMileage > 0) return;
     if (!operation.cachedDistanceMiles) return;
 
-    setDoc(
-      doc(db, `users/${user.uid}/inspections/${currentInspection.id}`),
-      {
-        calculatedMileage: operation.cachedDistanceMiles,
-        calculatedDriveTime: operation.cachedDriveTimeMinutes || 0,
-      },
-      { merge: true }
-    ).catch((err) => {
+    saveInspection({
+      ...currentInspection,
+      calculatedMileage: operation.cachedDistanceMiles,
+      calculatedDriveTime: operation.cachedDriveTimeMinutes || 0,
+      updatedAt: new Date().toISOString(),
+    }).catch((err) => {
       logger.error('Failed to set inspection mileage:', err);
       Swal.fire({ text: 'Failed to update inspection mileage.', icon: 'error' });
     });
-  }, [user, currentInspection, operation]);
+  }, [user, currentInspection, operation, saveInspection]);
 
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -546,7 +537,7 @@ export default function OperationProfile() {
   };
 
   if (loading) {
-    return <div className="p-8 text-center text-stone-500">Loading operation details...</div>;
+    return <div className="p-8 text-center text-[#8b7355]">Loading operation details...</div>;
   }
 
   if (!operation) return null;
@@ -578,7 +569,7 @@ export default function OperationProfile() {
       <div className="mb-6">
         <Link
           to="/operations"
-          className="inline-flex items-center gap-2 text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors mb-4"
+          className="inline-flex items-center gap-2 text-sm font-medium text-[#8b7355] hover:text-[#2a2420] transition-colors mb-4"
         >
           <ArrowLeft size={16} />
           Back to Directory
@@ -587,18 +578,18 @@ export default function OperationProfile() {
         <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">{operation.name}</h1>
+              <h1 className="font-serif-display text-[36px] font-semibold text-[#2a2420]">{operation.name}</h1>
               <span
                 className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                  operation.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-600'
+                  operation.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-[rgba(212,165,116,0.04)] text-[#7a6b5a]'
                 }`}
               >
                 {operation.status}
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-stone-500">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-[#8b7355]">
               {operation.clientId && (
-                <span className="bg-stone-100 px-2 py-0.5 rounded text-xs font-mono">{operation.clientId}</span>
+                <span className="bg-[rgba(212,165,116,0.04)] px-2 py-0.5 rounded text-xs font-mono">{operation.clientId}</span>
               )}
               <span className="flex items-center gap-1.5">
                 <Building2 size={14} /> {agency?.name || 'Unknown Agency'}
@@ -612,7 +603,7 @@ export default function OperationProfile() {
                 <MapPin size={14} /> {operation.address || 'No address'}
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-stone-500">
+            <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-[#8b7355]">
               {operation.contactName && <span>{operation.contactName}</span>}
               {operation.phone && (
                 <span className="flex items-center gap-1">
@@ -630,7 +621,7 @@ export default function OperationProfile() {
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               onClick={() => setIsScheduleModalOpen(true)}
-              className="px-4 py-2 bg-[#D49A6A] text-white rounded-xl text-sm font-medium hover:bg-[#c28a5c] transition-colors flex items-center gap-2 shadow-sm"
+              className="luxury-btn text-white rounded-xl text-sm font-bold border-0 cursor-pointer px-4 py-2 flex items-center gap-2"
             >
               <Calendar size={16} /> + Schedule
             </button>
@@ -639,19 +630,19 @@ export default function OperationProfile() {
                 href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(operation.address)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm"
+                className="px-4 py-2 bg-white border border-[rgba(212,165,116,0.15)] text-[#4a4038] rounded-xl text-sm font-medium hover:bg-[rgba(212,165,116,0.04)] transition-colors flex items-center gap-2 shadow-sm"
               >
                 <MapIcon size={16} /> Maps
               </a>
             )}
             <button
               onClick={() => setShowNearbyModal(true)}
-              className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm"
+              className="px-4 py-2 bg-white border border-[rgba(212,165,116,0.15)] text-[#4a4038] rounded-xl text-sm font-medium hover:bg-[rgba(212,165,116,0.04)] transition-colors flex items-center gap-2 shadow-sm"
             >
               <Navigation size={16} /> Nearby
             </button>
             {operation.cachedDistanceMiles != null && (
-              <div className="px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-sm font-medium text-stone-700">
+              <div className="px-3 py-2 bg-[rgba(212,165,116,0.04)] border border-[rgba(212,165,116,0.15)] rounded-xl text-sm font-medium text-[#4a4038]">
                 {formatDistance(operation.cachedDistanceMiles)} &middot;{' '}
                 {formatDriveTime(operation.cachedDriveTimeMinutes || 0)}
               </div>
@@ -668,8 +659,8 @@ export default function OperationProfile() {
             onClick={() => setSelectedYear(yr)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               selectedYear === yr
-                ? 'bg-[#D49A6A] text-white'
-                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                ? 'bg-gradient-to-r from-[#d4a574] to-[#c9956b] text-white shadow-sm'
+                : 'bg-[rgba(212,165,116,0.04)] text-[#7a6b5a] hover:bg-[rgba(212,165,116,0.06)]'
             }`}
           >
             {yr}
@@ -678,7 +669,7 @@ export default function OperationProfile() {
       </div>
 
       {/* Inspection Progress Bar */}
-      <div className="bg-[#FDFCFB] rounded-3xl p-6 shadow-sm border border-stone-100 mb-6">
+      <div className="bg-[#FDFCFB] luxury-card rounded-[24px] p-6 mb-6">
         <InspectionProgressBar
           currentStatus={currentInspection?.status || ''}
           onStepClick={handleProgressStepClick}
@@ -692,8 +683,8 @@ export default function OperationProfile() {
           onClick={() => setShowGmailPanel((prev) => !prev)}
           className={`px-4 py-2 border rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm ${
             showGmailPanel
-              ? 'bg-[#D49A6A] border-[#D49A6A] text-white'
-              : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
+              ? 'bg-gradient-to-r from-[#d4a574] to-[#c9956b] border-[#d4a574] text-white shadow-sm'
+              : 'bg-white border-[rgba(212,165,116,0.15)] text-[#4a4038] hover:bg-[rgba(212,165,116,0.04)]'
           }`}
         >
           <Mail size={16} /> Email
@@ -701,13 +692,13 @@ export default function OperationProfile() {
       </div>
 
       {showGmailPanel && (
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100 mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="luxury-card rounded-[24px] p-6 mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Mail size={18} className="text-[#D49A6A]" />
-              <h2 className="text-base font-bold text-stone-900">Gmail CRM</h2>
+              <Mail size={18} className="text-[#d4a574]" />
+              <h2 className="text-base font-bold text-[#2a2420]">Gmail CRM</h2>
               {operation.email && (
-                <span className="text-xs text-stone-500 bg-stone-100 px-2 py-0.5 rounded-full">
+                <span className="text-xs text-[#8b7355] bg-[rgba(212,165,116,0.04)] px-2 py-0.5 rounded-full">
                   {operation.email}
                 </span>
               )}
@@ -715,21 +706,21 @@ export default function OperationProfile() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setComposeOpen(true)}
-                className="px-4 py-1.5 bg-[#D49A6A] hover:bg-[#c28a5c] text-white rounded-xl text-xs font-medium transition-colors flex items-center gap-1.5 shadow-sm"
+                className="luxury-btn text-white rounded-xl text-xs font-bold border-0 cursor-pointer px-4 py-1.5 flex items-center gap-1.5"
               >
                 <Mail size={14} /> Compose
               </button>
               <button
                 onClick={loadGmailThreads}
                 disabled={loadingThreads}
-                className="px-4 py-1.5 bg-white border border-stone-200 text-stone-700 rounded-xl text-xs font-medium hover:bg-stone-50 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                className="px-4 py-1.5 bg-white border border-[rgba(212,165,116,0.15)] text-[#4a4038] rounded-xl text-xs font-medium hover:bg-[rgba(212,165,116,0.04)] transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
               >
                 {loadingThreads ? 'Loading...' : 'Load Threads'}
               </button>
             </div>
           </div>
           {gmailThreads.length === 0 && !loadingThreads ? (
-            <div className="py-6 text-center text-stone-500 text-sm">
+            <div className="py-6 text-center text-[#8b7355] text-sm">
               No threads loaded. Click &quot;Load Threads&quot; to fetch email history.
             </div>
           ) : (
@@ -740,17 +731,17 @@ export default function OperationProfile() {
                   href={`https://mail.google.com/mail/u/0/#all/${thread.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-start gap-3 p-3 rounded-xl border border-stone-100 hover:bg-stone-50 transition-colors group"
+                  className="flex items-start gap-3 p-3 rounded-xl border border-[rgba(212,165,116,0.12)] hover:bg-[rgba(212,165,116,0.04)] transition-colors group"
                 >
-                  <div className="w-8 h-8 rounded-full bg-[#D49A6A]/10 flex items-center justify-center shrink-0">
-                    <Mail size={14} className="text-[#D49A6A]" />
+                  <div className="w-8 h-8 rounded-full bg-[#d4a574]/10 flex items-center justify-center shrink-0">
+                    <Mail size={14} className="text-[#d4a574]" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-stone-700 truncate">{thread.snippet || 'No preview'}</p>
+                    <p className="text-sm text-[#4a4038] truncate">{thread.snippet || 'No preview'}</p>
                   </div>
                   <ExternalLink
                     size={14}
-                    className="text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1"
+                    className="text-[#a89b8c] opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1"
                   />
                 </a>
               ))}
@@ -760,15 +751,15 @@ export default function OperationProfile() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-stone-200 mb-6">
+      <div className="flex gap-1 border-b border-[rgba(212,165,116,0.15)] mb-6">
         {(['overview', 'inspections', 'documents', 'activity'] as TabId[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2.5 text-sm font-medium capitalize rounded-t-xl transition-colors ${
               activeTab === tab
-                ? 'bg-white border border-b-0 border-stone-200 text-stone-900'
-                : 'text-stone-500 hover:text-stone-700 hover:bg-stone-50'
+                ? 'bg-gradient-to-r from-[#d4a574] to-[#c9956b] text-white shadow-sm'
+                : 'text-[#7a6b5a] hover:text-[#2a2420] hover:bg-[rgba(212,165,116,0.04)]'
             }`}
           >
             {tab}
@@ -785,10 +776,10 @@ export default function OperationProfile() {
       )}
 
       {activeTab === 'inspections' && (
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100">
-          <h2 className="text-base font-bold text-stone-900 mb-4">Inspections</h2>
+        <div className="luxury-card rounded-[24px] p-6">
+          <h2 className="font-serif-display text-xl font-semibold text-[#2a2420] mb-4">Inspections</h2>
           {inspections.length === 0 ? (
-            <div className="text-center text-stone-500 py-4 text-sm">No inspections found.</div>
+            <div className="text-center text-[#8b7355] py-4 text-sm">No inspections found.</div>
           ) : (
             <div className="space-y-3">
               {inspections.map((inspection) => {
@@ -800,21 +791,21 @@ export default function OperationProfile() {
                 return (
                   <div
                     key={inspection.id}
-                    className="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-100"
+                    className="flex items-center justify-between p-3 rounded-xl bg-[rgba(212,165,116,0.04)] border border-[rgba(212,165,116,0.12)]"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-white border border-stone-200 flex flex-col items-center justify-center">
-                        <span className="text-[10px] font-bold text-stone-400 uppercase">{month}</span>
-                        <span className="text-sm font-extrabold text-stone-900 leading-none">{day}</span>
+                      <div className="w-10 h-10 rounded-xl bg-white border border-[rgba(212,165,116,0.15)] flex flex-col items-center justify-center">
+                        <span className="text-[10px] font-bold text-[#a89b8c] uppercase">{month}</span>
+                        <span className="text-sm font-extrabold text-[#2a2420] leading-none">{day}</span>
                       </div>
                       <div>
-                        <div className="text-sm font-bold text-stone-900">{year} Annual Inspection</div>
-                        <div className="text-xs text-stone-500">{inspection.status}</div>
+                        <div className="text-sm font-bold text-[#2a2420]">{year} Annual Inspection</div>
+                        <div className="text-xs text-[#8b7355]">{inspection.status}</div>
                       </div>
                     </div>
                     <Link
                       to={`/inspections/${inspection.id}`}
-                      className="text-[#D49A6A] hover:text-[#c28a5c] text-sm font-medium"
+                      className="text-[#d4a574] hover:text-[#c9956b] text-sm font-medium"
                     >
                       View
                     </Link>
@@ -827,9 +818,9 @@ export default function OperationProfile() {
       )}
 
       {activeTab === 'documents' && (
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100">
+        <div className="luxury-card rounded-[24px] p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-base font-bold text-stone-900">Documents</h2>
+            <h2 className="font-serif-display text-xl font-semibold text-[#2a2420]">Documents</h2>
             <div className="flex items-center gap-2">
               <button
                 onClick={async () => {
@@ -851,12 +842,12 @@ export default function OperationProfile() {
                     Swal.fire({ text: 'Failed to open Drive folder.', icon: 'error' });
                   }
                 }}
-                className="text-stone-400 hover:text-[#D49A6A] transition-colors p-1"
+                className="text-[#a89b8c] hover:text-[#d4a574] transition-colors p-1"
                 title="Open in Google Drive"
               >
                 <FolderOpen size={18} />
               </button>
-              <label className="text-stone-400 hover:text-[#D49A6A] transition-colors cursor-pointer">
+              <label className="text-[#a89b8c] hover:text-[#d4a574] transition-colors cursor-pointer">
                 <Plus size={18} />
                 <input type="file" className="hidden" onChange={handleFileUpload} />
               </label>
@@ -865,8 +856,8 @@ export default function OperationProfile() {
 
           {documents.length === 0 ? (
             <div className="flex flex-col items-center justify-center text-center p-4">
-              <FileText size={24} className="text-stone-300 mb-2" />
-              <p className="text-sm text-stone-500">No documents yet</p>
+              <FileText size={24} className="text-[#a89b8c] mb-2" />
+              <p className="text-sm text-[#8b7355]">No documents yet</p>
             </div>
           ) : (
             <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
@@ -876,7 +867,7 @@ export default function OperationProfile() {
                   href={d.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-between p-3 rounded-xl border border-stone-100 hover:bg-stone-50 transition-colors cursor-pointer group"
+                  className="flex items-center justify-between p-3 rounded-xl border border-[rgba(212,165,116,0.12)] hover:bg-[rgba(212,165,116,0.04)] transition-colors cursor-pointer group"
                 >
                   <div className="flex items-center gap-3">
                     <div
@@ -887,15 +878,15 @@ export default function OperationProfile() {
                       <FileText size={16} />
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-stone-900 truncate max-w-[250px]">{d.name}</div>
-                      <div className="text-[10px] text-stone-500">
+                      <div className="text-sm font-medium text-[#2a2420] truncate max-w-[250px]">{d.name}</div>
+                      <div className="text-[10px] text-[#8b7355]">
                         Added {formatDate(d.uploadedAt)} &middot; {formatFileSize(d.size)}
                       </div>
                     </div>
                   </div>
                   <MoreVertical
                     size={16}
-                    className="text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="text-[#a89b8c] opacity-0 group-hover:opacity-100 transition-opacity"
                   />
                 </a>
               ))}
@@ -904,21 +895,21 @@ export default function OperationProfile() {
 
           <div className="mt-4">
             <label
-              className={`border-2 border-dashed border-stone-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
-                uploadingDoc ? 'bg-stone-50 border-[#D49A6A]/50' : 'hover:bg-stone-50 hover:border-[#D49A6A]/50'
+              className={`border-2 border-dashed border-[rgba(212,165,116,0.15)] rounded-2xl p-6 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
+                uploadingDoc ? 'bg-[rgba(212,165,116,0.04)] border-[#d4a574]/50' : 'hover:bg-[rgba(212,165,116,0.04)] hover:border-[#d4a574]/50'
               }`}
             >
               <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploadingDoc} />
               {uploadingDoc ? (
                 <>
-                  <div className="w-6 h-6 border-2 border-[#D49A6A] border-t-transparent rounded-full animate-spin mb-2" />
-                  <span className="text-sm font-medium text-[#D49A6A] mb-1">Uploading...</span>
+                  <div className="w-6 h-6 border-2 border-[#d4a574] border-t-transparent rounded-full animate-spin mb-2" />
+                  <span className="text-sm font-medium text-[#d4a574] mb-1">Uploading...</span>
                 </>
               ) : (
                 <>
-                  <CloudUpload size={24} className="text-stone-400 mb-2" />
-                  <span className="text-sm font-medium text-stone-700 mb-1">Upload Document</span>
-                  <span className="text-[10px] text-stone-500">Click to browse</span>
+                  <CloudUpload size={24} className="text-[#a89b8c] mb-2" />
+                  <span className="text-sm font-medium text-[#4a4038] mb-1">Upload Document</span>
+                  <span className="text-[10px] text-[#8b7355]">Click to browse</span>
                 </>
               )}
             </label>
@@ -927,8 +918,8 @@ export default function OperationProfile() {
       )}
 
       {activeTab === 'activity' && (
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100">
-          <h2 className="text-base font-bold text-stone-900 mb-4">Tasks & Activity</h2>
+        <div className="luxury-card rounded-[24px] p-6">
+          <h2 className="font-serif-display text-xl font-semibold text-[#2a2420] mb-4">Tasks & Activity</h2>
           <div className="mb-6">
             <TasksWidget operationId={id} title="Operation Tasks" />
           </div>
@@ -937,53 +928,53 @@ export default function OperationProfile() {
 
       {/* Compose Email Modal */}
       {composeOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-stone-100 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-stone-900">Compose Email</h2>
-              <button onClick={() => setComposeOpen(false)} className="text-stone-400 hover:text-stone-600">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 luxury-modal-backdrop animate-in fade-in duration-200">
+          <div className="luxury-modal-card rounded-[28px] w-full max-w-lg overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-[rgba(212,165,116,0.12)] flex items-center justify-between">
+              <h2 className="font-serif-display text-xl font-semibold text-[#2a2420]">Compose Email</h2>
+              <button onClick={() => setComposeOpen(false)} className="text-[#a89b8c] hover:text-[#7a6b5a]">
                 <X size={20} />
               </button>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">To</label>
-                <div className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm text-stone-600">
+                <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">To</label>
+                <div className="w-full bg-[rgba(212,165,116,0.04)] border border-[rgba(212,165,116,0.15)] rounded-2xl px-4 py-3 text-sm text-[#7a6b5a]">
                   {operation.email || 'No email set'}
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Subject</label>
+                <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">Subject</label>
                 <input
                   type="text"
                   value={emailSubject}
                   onChange={(e) => setEmailSubject(e.target.value)}
                   placeholder={`Inspection Follow-up: ${operation.name}`}
-                  className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all outline-none"
+                  className="w-full luxury-input rounded-2xl px-4 py-3 text-sm outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Message</label>
+                <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">Message</label>
                 <textarea
                   value={emailBody}
                   onChange={(e) => setEmailBody(e.target.value)}
                   rows={6}
                   placeholder={`Dear ${operation.contactName || 'Sir/Madam'},\n\nFollowing up regarding the inspection at ${operation.name}.`}
-                  className="w-full resize-none bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all outline-none"
+                  className="w-full resize-none luxury-input rounded-2xl px-4 py-3 text-sm outline-none"
                 />
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-end gap-3">
+            <div className="px-6 py-4 border-t border-[rgba(212,165,116,0.12)] bg-[rgba(212,165,116,0.04)] flex justify-end gap-3">
               <button
                 onClick={() => setComposeOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 rounded-xl transition-colors"
+                className="px-4 py-2 text-sm font-medium text-[#7a6b5a] hover:text-[#2a2420] rounded-xl transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={sendTemplatedEmail}
                 disabled={sendingEmail || !operation.email}
-                className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+                className="luxury-btn text-white rounded-xl text-sm font-bold border-0 cursor-pointer px-6 py-2 disabled:opacity-50"
               >
                 {sendingEmail ? 'Sending...' : 'Send Email'}
               </button>
@@ -994,15 +985,15 @@ export default function OperationProfile() {
 
       {/* Schedule Modal */}
       {isScheduleModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-stone-100">
-              <h2 className="text-xl font-bold text-stone-900">Schedule Inspection</h2>
-              <p className="text-sm text-stone-500 mt-1">Select a date for the upcoming inspection.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 luxury-modal-backdrop animate-in fade-in duration-200">
+          <div className="luxury-modal-card rounded-[28px] w-full max-w-sm overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-[rgba(212,165,116,0.12)]">
+              <h2 className="font-serif-display text-xl font-semibold text-[#2a2420]">Schedule Inspection</h2>
+              <p className="text-sm text-[#8b7355] font-medium mt-1">Select a date for the upcoming inspection.</p>
             </div>
             <form id="schedule-form" onSubmit={handleSchedule} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">
                   Start Date
                 </label>
                 <input
@@ -1010,23 +1001,23 @@ export default function OperationProfile() {
                   required
                   value={scheduleDate}
                   onChange={(e) => setScheduleDate(e.target.value)}
-                  className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all outline-none"
+                  className="w-full luxury-input rounded-2xl px-4 py-3 text-sm outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
-                  End Date <span className="font-normal text-stone-400 normal-case">(optional)</span>
+                <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">
+                  End Date <span className="font-normal text-[#a89b8c] normal-case">(optional)</span>
                 </label>
                 <input
                   type="date"
                   value={scheduleEndDate}
                   min={scheduleDate || undefined}
                   onChange={(e) => setScheduleEndDate(e.target.value)}
-                  className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all outline-none"
+                  className="w-full luxury-input rounded-2xl px-4 py-3 text-sm outline-none"
                 />
               </div>
             </form>
-            <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-end gap-3 shrink-0">
+            <div className="px-6 py-4 border-t border-[rgba(212,165,116,0.12)] bg-[rgba(212,165,116,0.04)] flex justify-end gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -1034,7 +1025,7 @@ export default function OperationProfile() {
                   setScheduleDate('');
                   setScheduleEndDate('');
                 }}
-                className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 rounded-xl transition-colors"
+                className="px-4 py-2 text-sm font-medium text-[#7a6b5a] hover:text-[#2a2420] rounded-xl transition-colors"
               >
                 Cancel
               </button>
@@ -1042,7 +1033,7 @@ export default function OperationProfile() {
                 type="submit"
                 form="schedule-form"
                 disabled={!scheduleDate}
-                className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="luxury-btn text-white rounded-xl text-sm font-bold border-0 cursor-pointer px-6 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Schedule
               </button>

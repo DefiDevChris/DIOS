@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
+import { logger } from '@dios/shared'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export const CREATE_TABLES = `
   CREATE TABLE IF NOT EXISTS agencies (
@@ -87,6 +88,10 @@ export const CREATE_TABLES = `
     calculatedDriveTime REAL NOT NULL DEFAULT 0,
     reportCompleted INTEGER DEFAULT 0,
     googleCalendarEventId TEXT DEFAULT NULL,
+    endDate TEXT DEFAULT NULL,
+    linkedExpenses TEXT DEFAULT NULL,
+    lineItems TEXT DEFAULT NULL,
+    reportNotes TEXT DEFAULT NULL,
     updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
     syncStatus TEXT NOT NULL DEFAULT 'pending',
     FOREIGN KEY (operationId) REFERENCES operations(id)
@@ -107,6 +112,8 @@ export const CREATE_TABLES = `
     agencyName TEXT NOT NULL DEFAULT '',
     date TEXT NOT NULL DEFAULT '',
     inspectionDate TEXT NOT NULL DEFAULT '',
+    invoiceNumber TEXT NOT NULL DEFAULT '',
+    invoiceNotes TEXT DEFAULT NULL,
     createdAt TEXT NOT NULL DEFAULT '',
     updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
     syncStatus TEXT NOT NULL DEFAULT 'pending',
@@ -122,8 +129,10 @@ export const CREATE_TABLES = `
     notes TEXT DEFAULT NULL,
     receiptImageUrl TEXT DEFAULT NULL,
     receiptFileId TEXT DEFAULT NULL,
+    receiptFileName TEXT DEFAULT NULL,
     inspectionId TEXT DEFAULT NULL,
     category TEXT DEFAULT NULL,
+    createdAt TEXT NOT NULL DEFAULT (datetime('now')),
     updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
     syncStatus TEXT NOT NULL DEFAULT 'pending'
   );
@@ -133,7 +142,8 @@ export const CREATE_TABLES = `
     title TEXT NOT NULL,
     description TEXT DEFAULT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
-    createdAt TEXT NOT NULL,
+    priority TEXT DEFAULT NULL,
+    createdAt TEXT NOT NULL DEFAULT (datetime('now')),
     dueDate TEXT DEFAULT NULL,
     operationId TEXT DEFAULT NULL,
     inspectionId TEXT DEFAULT NULL,
@@ -178,7 +188,8 @@ export const CREATE_TABLES = `
   CREATE TABLE IF NOT EXISTS system_config (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
-    updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+    updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+    syncStatus TEXT NOT NULL DEFAULT 'synced'
   );
 
   CREATE TABLE IF NOT EXISTS unassigned_uploads (
@@ -194,15 +205,6 @@ export const CREATE_TABLES = `
     syncStatus TEXT NOT NULL DEFAULT 'pending'
   );
 
-  CREATE TABLE IF NOT EXISTS sync_status (
-    tableName TEXT NOT NULL,
-    recordId TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    lastSyncedAt TEXT DEFAULT NULL,
-    lastError TEXT DEFAULT NULL,
-    PRIMARY KEY (tableName, recordId)
-  );
-
   CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL
   );
@@ -216,7 +218,7 @@ function safeAddColumn(db: Database.Database, table: string, column: string, def
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     if (!message.includes('duplicate column')) {
-      console.error(`Migration error adding ${table}.${column}:`, message)
+      logger.error(`Migration error adding ${table}.${column}:`, message)
     }
   }
 }
@@ -256,6 +258,10 @@ export function migrateSchema(db: Database.Database): void {
   safeAddColumn(db, 'inspections', 'reportChecklistData', "TEXT NOT NULL DEFAULT '[]'")
   safeAddColumn(db, 'inspections', 'calculatedMileage', "REAL NOT NULL DEFAULT 0")
   safeAddColumn(db, 'inspections', 'calculatedDriveTime', "REAL NOT NULL DEFAULT 0")
+  safeAddColumn(db, 'inspections', 'endDate', "TEXT DEFAULT NULL")
+  safeAddColumn(db, 'inspections', 'linkedExpenses', "TEXT DEFAULT NULL")
+  safeAddColumn(db, 'inspections', 'lineItems', "TEXT DEFAULT NULL")
+  safeAddColumn(db, 'inspections', 'reportNotes', "TEXT DEFAULT NULL")
 
   // --- invoices new columns ---
   safeAddColumn(db, 'invoices', 'sentDate', "TEXT DEFAULT NULL")
@@ -267,6 +273,18 @@ export function migrateSchema(db: Database.Database): void {
   safeAddColumn(db, 'invoices', 'date', "TEXT NOT NULL DEFAULT ''")
   safeAddColumn(db, 'invoices', 'inspectionDate', "TEXT NOT NULL DEFAULT ''")
   safeAddColumn(db, 'invoices', 'createdAt', "TEXT NOT NULL DEFAULT ''")
+  safeAddColumn(db, 'invoices', 'invoiceNumber', "TEXT NOT NULL DEFAULT ''")
+  safeAddColumn(db, 'invoices', 'invoiceNotes', "TEXT DEFAULT NULL")
+
+  // --- tasks new columns ---
+  safeAddColumn(db, 'tasks', 'priority', "TEXT DEFAULT NULL")
+
+  // --- system_config new columns ---
+  safeAddColumn(db, 'system_config', 'syncStatus', "TEXT NOT NULL DEFAULT 'synced'")
+
+  // --- expenses new columns ---
+  safeAddColumn(db, 'expenses', 'receiptFileName', "TEXT DEFAULT NULL")
+  safeAddColumn(db, 'expenses', 'createdAt', "TEXT NOT NULL DEFAULT (datetime('now'))")
 
   // --- notes new columns ---
   safeAddColumn(db, 'notes', 'operationId', "TEXT DEFAULT NULL")
@@ -318,7 +336,7 @@ export function migrateSchema(db: Database.Database): void {
     `)
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error('Data migration error:', message)
+    logger.error('Data migration error:', message)
   }
 
   // Update schema version
@@ -326,6 +344,6 @@ export function migrateSchema(db: Database.Database): void {
     db.exec(`UPDATE schema_version SET version = ${SCHEMA_VERSION}`)
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error('Schema version update error:', message)
+    logger.error('Schema version update error:', message)
   }
 }

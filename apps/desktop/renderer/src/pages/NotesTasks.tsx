@@ -54,7 +54,7 @@ function formatRelativeDate(dateStr: string): string {
 const priorityBadge: Record<string, string> = {
   high: 'bg-red-100 text-red-700',
   medium: 'bg-amber-100 text-amber-700',
-  low: 'bg-stone-100 text-stone-600',
+  low: 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a]',
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -63,6 +63,7 @@ export default function NotesTasks() {
   const { user } = useAuth();
   const { findAll: findAllTasks, save: saveTask, remove: removeTask } = useDatabase<SharedTask>({ table: 'tasks' });
   const { findAll: findAllOperations } = useDatabase<{ id: string; name: string }>({ table: 'operations' });
+  const { findAll: findAllActivities } = useDatabase<OperationActivity>({ table: 'operation_activities' });
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -109,32 +110,13 @@ export default function NotesTasks() {
         }));
         setTasks(loadedTasks);
 
-        // 3. Fetch activities from every operation using useDatabase for operations
-        // Activities are subcollections, so we need to fetch them separately
-        const loadedActivities: ActivityItem[] = [];
-        const { db } = await import('@dios/shared/firebase');
-        const { collection, getDocs } = await import('firebase/firestore');
-        
-        const activityFetches = opsData.map(async (op) => {
-          const activitiesSnap = await getDocs(
-            collection(db, `users/${user.uid}/operations/${op.id}/activities`)
-          );
-          activitiesSnap.forEach((aDoc) => {
-            const data = aDoc.data();
-            loadedActivities.push({
-              id: aDoc.id,
-              type: data.type ?? 'note',
-              description: data.description ?? '',
-              timestamp: data.timestamp ?? new Date().toISOString(),
-              operationId: op.id,
-              operationName: opMap[op.id],
-              _source: 'activity',
-              updatedAt: data.updatedAt ?? new Date().toISOString(),
-              syncStatus: data.syncStatus ?? 'pending',
-            });
-          });
-        });
-        await Promise.all(activityFetches);
+        // 3. Fetch all activities via useDatabase (works in Electron and web)
+        const activitiesData = await findAllActivities();
+        const loadedActivities: ActivityItem[] = activitiesData.map((a) => ({
+          ...a,
+          operationName: a.operationId ? opMap[a.operationId] : undefined,
+          _source: 'activity' as const,
+        }));
         setActivities(loadedActivities);
       } catch (err) {
         handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/tasks`);
@@ -144,7 +126,7 @@ export default function NotesTasks() {
     };
 
     loadAll();
-  }, [user, findAllTasks, findAllOperations]);
+  }, [user, findAllTasks, findAllOperations, findAllActivities]);
 
   // ── Task actions ────────────────────────────────────────────────────────────
 
@@ -277,8 +259,8 @@ export default function NotesTasks() {
       onClick={() => handleSort(field)}
       className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
         sortField === field
-          ? 'bg-[#D49A6A] text-white'
-          : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+          ? 'bg-[#d4a574] text-white'
+          : 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a] hover:bg-[rgba(212,165,116,0.12)]'
       }`}
     >
       {label}
@@ -292,12 +274,12 @@ export default function NotesTasks() {
     <div className="animate-in fade-in duration-500 flex flex-col h-[calc(100vh-8rem)]">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6 shrink-0">
-        <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-stone-100">
-          <StickyNote size={24} className="text-[#D49A6A]" />
+        <div className="w-12 h-12 luxury-card rounded-2xl flex items-center justify-center">
+          <StickyNote size={24} className="text-[#d4a574]" />
         </div>
         <div>
-          <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">Notes & Tasks</h1>
-          <p className="text-stone-500 text-sm mt-1">
+          <h1 className="font-serif-display text-[36px] font-semibold text-[#2a2420] tracking-tight">Notes & Tasks</h1>
+          <p className="text-[#8b7355] text-sm font-medium mt-1">
             All tasks and activity notes across every operation — in one place.
           </p>
         </div>
@@ -306,19 +288,19 @@ export default function NotesTasks() {
       {/* Quick-add task */}
       <form
         onSubmit={addTask}
-        className="bg-white rounded-2xl border border-stone-100 shadow-sm p-4 mb-4 shrink-0 flex flex-col sm:flex-row gap-3"
+        className="luxury-card rounded-[20px] p-4 mb-4 shrink-0 flex flex-col sm:flex-row gap-3"
       >
         <input
           type="text"
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           placeholder="Add a new task..."
-          className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-4 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+          className="flex-1 luxury-input rounded-2xl px-4 py-3 text-sm outline-none"
         />
         <select
           value={newPriority}
           onChange={(e) => setNewPriority(e.target.value as 'low' | 'medium' | 'high')}
-          className="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+          className="luxury-input rounded-2xl px-3 py-3 text-sm outline-none"
         >
           <option value="high">High Priority</option>
           <option value="medium">Medium Priority</option>
@@ -327,7 +309,7 @@ export default function NotesTasks() {
         <button
           type="submit"
           disabled={!newTitle.trim() || addingTask}
-          className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          className="luxury-btn text-white px-4 py-2 rounded-xl text-sm font-bold border-0 cursor-pointer flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {addingTask ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
           Add Task
@@ -335,14 +317,14 @@ export default function NotesTasks() {
       </form>
 
       {/* Filters + Sort bar */}
-      <div className="bg-white rounded-2xl border border-stone-100 shadow-sm px-4 py-3 mb-4 shrink-0 flex flex-wrap gap-3 items-center justify-between">
+      <div className="luxury-card rounded-[20px] px-4 py-3 mb-4 shrink-0 flex flex-wrap gap-3 items-center justify-between">
         {/* Search */}
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search tasks and notes..."
-          className="bg-stone-50 border border-stone-200 rounded-xl px-3 py-1.5 text-sm w-full sm:w-56 focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+          className="luxury-input rounded-2xl px-3 py-1.5 text-sm w-full sm:w-56 outline-none"
         />
 
         {/* Filter pills */}
@@ -353,22 +335,22 @@ export default function NotesTasks() {
               onClick={() => setFilterStatus(s)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
                 filterStatus === s
-                  ? 'bg-stone-800 text-white'
-                  : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                  ? 'bg-[#2a2420] text-white'
+                  : 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a] hover:bg-[rgba(212,165,116,0.12)]'
               }`}
             >
               {s}
             </button>
           ))}
-          <span className="w-px bg-stone-200" />
+          <span className="w-px bg-[rgba(212,165,116,0.15)]" />
           {(['all', 'task', 'activity'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setFilterSource(s)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
                 filterSource === s
-                  ? 'bg-stone-800 text-white'
-                  : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                  ? 'bg-[#2a2420] text-white'
+                  : 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a] hover:bg-[rgba(212,165,116,0.12)]'
               }`}
             >
               {s === 'all' ? 'All Types' : s === 'task' ? 'Tasks' : 'Activity Notes'}
@@ -378,7 +360,7 @@ export default function NotesTasks() {
 
         {/* Sort */}
         <div className="flex gap-2 items-center">
-          <span className="text-xs text-stone-400 font-medium">Sort:</span>
+          <span className="text-xs text-[#a89b8c] font-medium">Sort:</span>
           {sortBtn('date', 'Date')}
           {sortBtn('priority', 'Priority')}
           {sortBtn('operation', 'Operation')}
@@ -386,34 +368,34 @@ export default function NotesTasks() {
       </div>
 
       {/* Master list */}
-      <div className="flex-1 min-h-0 bg-white rounded-3xl border border-stone-100 shadow-sm overflow-y-auto">
+      <div className="flex-1 min-h-0 luxury-card rounded-[24px] overflow-y-auto">
         {loading ? (
-          <div className="flex flex-col items-center justify-center h-full text-stone-400 gap-3">
+          <div className="flex flex-col items-center justify-center h-full text-[#a89b8c] gap-3">
             <Loader2 size={28} className="animate-spin" />
             <span className="text-sm">Loading all tasks and notes…</span>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-stone-400 gap-3 p-8">
-            <CheckSquare size={40} className="text-stone-300" strokeWidth={1.5} />
+          <div className="flex flex-col items-center justify-center h-full text-[#a89b8c] gap-3 p-8">
+            <CheckSquare size={40} className="text-[#d4a574]" strokeWidth={1.5} />
             <p className="text-sm font-medium">No items match your filters.</p>
           </div>
         ) : (
-          <ul className="divide-y divide-stone-50">
+          <ul className="divide-y divide-[rgba(212,165,116,0.06)]">
             {filtered.map((item) => {
               if (item._source === 'task') {
                 const task = item as Task & { _sortDate: number };
                 return (
                   <li
                     key={`task-${task.id}`}
-                    className="flex items-start gap-3 px-5 py-4 hover:bg-stone-50 group transition-colors"
+                    className="flex items-start gap-3 px-5 py-4 hover:bg-[rgba(212,165,116,0.04)] group transition-colors"
                   >
                     {/* Checkbox */}
                     <button
                       onClick={() => toggleTask(task)}
-                      className="mt-0.5 text-stone-400 hover:text-[#D49A6A] transition-colors shrink-0"
+                      className="mt-0.5 text-[#a89b8c] hover:text-[#d4a574] transition-colors shrink-0"
                     >
                       {task.status === 'completed' ? (
-                        <CheckSquare size={18} className="text-[#D49A6A]" />
+                        <CheckSquare size={18} className="text-[#d4a574]" />
                       ) : (
                         <Square size={18} />
                       )}
@@ -425,8 +407,8 @@ export default function NotesTasks() {
                         <span
                           className={`text-sm font-medium ${
                             task.status === 'completed'
-                              ? 'text-stone-400 line-through'
-                              : 'text-stone-800'
+                              ? 'text-[#a89b8c] line-through'
+                              : 'text-[#2a2420]'
                           }`}
                         >
                           {task.title}
@@ -442,15 +424,15 @@ export default function NotesTasks() {
                         )}
                       </div>
                       {task.description && (
-                        <p className="text-xs text-stone-500 mt-0.5">{task.description}</p>
+                        <p className="text-xs text-[#8b7355] mt-0.5">{task.description}</p>
                       )}
                       <div className="flex items-center gap-3 mt-1">
-                        <span className="text-[11px] text-stone-400">
+                        <span className="text-[11px] text-[#a89b8c]">
                           {formatRelativeDate(task.createdAt)}
                         </span>
                         {task.operationName && (
-                          <span className="flex items-center gap-1 text-[11px] text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded-md">
-                            <Tag size={9} className="text-stone-400" />
+                          <span className="flex items-center gap-1 text-[11px] text-[#8b7355] bg-[rgba(212,165,116,0.06)] px-1.5 py-0.5 rounded-md">
+                            <Tag size={9} className="text-[#a89b8c]" />
                             {task.operationName}
                           </span>
                         )}
@@ -460,7 +442,7 @@ export default function NotesTasks() {
                     {/* Delete */}
                     <button
                       onClick={() => deleteTask(task.id)}
-                      className="text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shrink-0 p-1 mt-0.5"
+                      className="text-[#a89b8c] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shrink-0 p-1 mt-0.5"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -473,26 +455,26 @@ export default function NotesTasks() {
               return (
                 <li
                   key={`activity-${act.id}`}
-                  className="flex items-start gap-3 px-5 py-4 hover:bg-stone-50 transition-colors"
+                  className="flex items-start gap-3 px-5 py-4 hover:bg-[rgba(212,165,116,0.04)] transition-colors"
                 >
                   <div className="mt-0.5 shrink-0 w-[18px] h-[18px] flex items-center justify-center">
-                    <Activity size={15} className="text-[#D49A6A]" />
+                    <Activity size={15} className="text-[#d4a574]" />
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-[#D49A6A] uppercase tracking-wide">
+                      <span className="text-xs font-semibold text-[#d4a574] uppercase tracking-wide">
                         {act.type}
                       </span>
                     </div>
-                    <p className="text-sm text-stone-700 mt-0.5">{act.description}</p>
+                    <p className="text-sm text-[#4a4038] mt-0.5">{act.description}</p>
                     <div className="flex items-center gap-3 mt-1">
-                      <span className="text-[11px] text-stone-400">
+                      <span className="text-[11px] text-[#a89b8c]">
                         {formatRelativeDate(act.timestamp)}
                       </span>
                       {act.operationName && (
-                        <span className="flex items-center gap-1 text-[11px] text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded-md">
-                          <Tag size={9} className="text-stone-400" />
+                        <span className="flex items-center gap-1 text-[11px] text-[#8b7355] bg-[rgba(212,165,116,0.06)] px-1.5 py-0.5 rounded-md">
+                          <Tag size={9} className="text-[#a89b8c]" />
                           {act.operationName}
                         </span>
                       )}
@@ -507,7 +489,7 @@ export default function NotesTasks() {
 
       {/* Summary footer */}
       {!loading && (
-        <div className="mt-3 text-xs text-stone-400 text-right shrink-0">
+        <div className="mt-3 text-xs text-[#a89b8c] text-right shrink-0">
           {filtered.length} item{filtered.length !== 1 ? 's' : ''}
           {' '}
           ({tasks.filter((t) => t.status === 'pending').length} pending task

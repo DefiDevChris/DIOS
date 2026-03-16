@@ -52,11 +52,11 @@ function getCircleClasses(state: 'completed' | 'current' | 'future'): string {
 
   switch (state) {
     case 'completed':
-      return `${base} border-[#D49A6A] text-[#D49A6A] bg-white`
+      return `${base} border-[#d4a574] text-[#d4a574] bg-white`
     case 'current':
-      return `${base} border-[#D49A6A] ring-4 ring-[#D49A6A]/10 bg-white text-[#D49A6A]`
+      return `${base} border-[#d4a574] ring-4 ring-[#d4a574]/10 bg-white text-[#d4a574]`
     case 'future':
-      return `${base} border-stone-200 text-stone-400 bg-white`
+      return `${base} border-[rgba(212,165,116,0.15)] text-[#a89b8c] bg-white`
   }
 }
 
@@ -66,9 +66,9 @@ function getLabelClasses(state: 'completed' | 'current' | 'future'): string {
   switch (state) {
     case 'completed':
     case 'current':
-      return `${base} text-[#D49A6A]`
+      return `${base} text-[#d4a574]`
     case 'future':
-      return `${base} text-stone-400`
+      return `${base} text-[#a89b8c]`
   }
 }
 
@@ -83,7 +83,7 @@ export default function InspectionProgressBar({
 
   return (
     <div
-      className={`bg-stone-50/50 rounded-2xl border border-stone-100 p-4${
+      className={`bg-[rgba(212,165,116,0.03)] rounded-2xl border border-[rgba(212,165,116,0.12)] p-4${
         disabled ? ' opacity-40 pointer-events-none' : ''
       }`}
     >
@@ -112,7 +112,7 @@ export default function InspectionProgressBar({
               </div>
 
               {index < STEPS.length - 1 && (
-                <ChevronRight className="text-stone-300 w-5 h-5 flex-shrink-0" />
+                <ChevronRight className="text-[#d4a574] w-5 h-5 flex-shrink-0" />
               )}
             </React.Fragment>
           )

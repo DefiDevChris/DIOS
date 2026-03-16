@@ -14,9 +14,12 @@ type ExtendedInspection = Inspection & {
 
 const STATUS_COLORS: Record<string, string> = {
   'Scheduled': 'bg-blue-100 text-blue-700',
-  'In Progress': 'bg-amber-100 text-amber-700',
-  'Completed': 'bg-emerald-100 text-emerald-700',
-  'Cancelled': 'bg-stone-100 text-stone-600',
+  'Prep': 'bg-amber-100 text-amber-700',
+  'Inspected': 'bg-purple-100 text-purple-700',
+  'Report': 'bg-orange-100 text-orange-700',
+  'Invoiced': 'bg-cyan-100 text-cyan-700',
+  'Paid': 'bg-emerald-100 text-emerald-700',
+  'Cancelled': 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a]',
 };
 
 export default function Inspections() {
@@ -48,10 +51,10 @@ export default function Inspections() {
           findAllOperations(),
           findAllAgencies(),
         ]);
-        
+
         // Sort inspections by date desc
         const sortedInspections = inspectionsData.sort((a, b) => b.date.localeCompare(a.date));
-        
+
         setInspections(sortedInspections);
         setOperations(operationsData);
         setAgencies(agenciesData);
@@ -107,91 +110,97 @@ export default function Inspections() {
     <div className="animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">Inspections</h1>
-          <p className="mt-2 text-stone-500 text-sm">View and manage all inspection records.</p>
+          <h1 className="font-serif-display text-[36px] font-semibold text-[#2a2420] tracking-tight">Inspections</h1>
+          <p className="mt-2 text-[#8b7355] text-sm font-medium">View and manage all inspection records.</p>
         </div>
       </div>
 
       {/* Summary Cards */}
       {!loading && inspections.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          {(['Scheduled', 'In Progress', 'Completed', 'Cancelled'] as const).map((s) => (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+          {(['Scheduled', 'Prep', 'Inspected', 'Report', 'Invoiced', 'Paid', 'Cancelled'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(statusFilter === s ? 'all' : s)}
-              className={`bg-white rounded-2xl p-4 border text-left transition-all hover:shadow-md ${
-                statusFilter === s ? 'border-[#D49A6A] ring-2 ring-[#D49A6A]/20' : 'border-stone-100'
+              className={`luxury-card rounded-[20px] p-3 border text-left transition-all hover:shadow-md ${
+                statusFilter === s ? 'border-[#d4a574] ring-2 ring-[#d4a574]/20' : 'border-[rgba(212,165,116,0.12)]'
               }`}
             >
-              <div className="text-2xl font-extrabold text-stone-900">{statusCounts[s] || 0}</div>
-              <div className={`text-xs font-bold uppercase tracking-wider mt-1 ${
+              <div className="text-xl font-extrabold text-[#2a2420]">{statusCounts[s] || 0}</div>
+              <div className={`text-[10px] font-bold uppercase tracking-wider mt-1 ${
                 s === 'Scheduled' ? 'text-blue-600'
-                : s === 'In Progress' ? 'text-amber-600'
-                : s === 'Completed' ? 'text-emerald-600'
-                : 'text-stone-500'
+                : s === 'Prep' ? 'text-amber-600'
+                : s === 'Inspected' ? 'text-purple-600'
+                : s === 'Report' ? 'text-orange-600'
+                : s === 'Invoiced' ? 'text-cyan-600'
+                : s === 'Paid' ? 'text-emerald-600'
+                : 'text-[#8b7355]'
               }`}>{s}</div>
             </button>
           ))}
         </div>
       )}
 
-      <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden flex flex-col min-h-[500px]">
+      <div className="luxury-card rounded-[24px] overflow-hidden flex flex-col min-h-[500px]">
         {/* Toolbar */}
-        <div className="p-4 border-b border-stone-100 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-stone-50/50">
+        <div className="p-4 border-b border-[rgba(212,165,116,0.12)] flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-[rgba(212,165,116,0.04)]">
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a89b8c]" size={18} />
             <input
               type="text"
               placeholder="Search by operation, scope, or date..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white border border-stone-200 focus:border-[#D49A6A] focus:ring-2 focus:ring-[#D49A6A]/20 rounded-xl py-2 pl-10 pr-4 text-sm transition-all"
+              className="w-full luxury-input rounded-2xl py-2 pl-10 pr-4 text-sm outline-none"
             />
           </div>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-white border border-stone-200 focus:border-[#D49A6A] focus:ring-2 focus:ring-[#D49A6A]/20 rounded-xl py-2 px-3 text-sm transition-all"
+            className="luxury-input rounded-2xl py-2 px-3 text-sm outline-none"
           >
             <option value="all">All Statuses</option>
             <option value="Scheduled">Scheduled</option>
-            <option value="In Progress">In Progress</option>
-            <option value="Completed">Completed</option>
+            <option value="Prep">Prep</option>
+            <option value="Inspected">Inspected</option>
+            <option value="Report">Report</option>
+            <option value="Invoiced">Invoiced</option>
+            <option value="Paid">Paid</option>
             <option value="Cancelled">Cancelled</option>
           </select>
           <button
             onClick={handleExportCsv}
             disabled={filtered.length === 0}
-            className="px-3 py-2 bg-white border border-stone-200 text-stone-600 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 disabled:opacity-50"
+            className="px-3 py-2 bg-white border border-[rgba(212,165,116,0.15)] text-[#7a6b5a] rounded-xl text-sm font-medium hover:bg-[rgba(212,165,116,0.04)] transition-colors flex items-center gap-2 disabled:opacity-50"
           >
             <Download size={16} />
             Export
           </button>
-          <div className="text-sm text-stone-500 font-medium shrink-0">
+          <div className="text-sm text-[#8b7355] font-medium shrink-0">
             {filtered.length} {filtered.length === 1 ? 'Inspection' : 'Inspections'}
           </div>
         </div>
 
         {/* Content */}
         {loading ? (
-          <div className="flex-1 flex items-center justify-center text-stone-500">Loading inspections...</div>
+          <div className="flex-1 flex items-center justify-center text-[#8b7355]">Loading inspections...</div>
         ) : inspections.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
-            <div className="w-16 h-16 bg-stone-50 rounded-2xl flex items-center justify-center mb-4 border border-stone-100">
-              <ClipboardCheck size={32} className="text-stone-300" />
+            <div className="w-16 h-16 bg-[rgba(212,165,116,0.04)] rounded-2xl flex items-center justify-center mb-4 border border-[rgba(212,165,116,0.12)]">
+              <ClipboardCheck size={32} className="text-[#d4a574]" />
             </div>
-            <h3 className="text-lg font-bold text-stone-900 mb-1">No inspections yet</h3>
-            <p className="text-stone-500 text-sm max-w-sm mx-auto">
+            <h3 className="text-lg font-bold text-[#2a2420] mb-1">No inspections yet</h3>
+            <p className="text-[#8b7355] text-sm max-w-sm mx-auto">
               Inspections can be created from an operation's profile page.
             </p>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-stone-500">
-            <Search size={32} className="text-stone-300 mb-3" />
+          <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-[#8b7355]">
+            <Search size={32} className="text-[#d4a574] mb-3" />
             <p>No inspections match your search.</p>
           </div>
         ) : (
-          <div className="divide-y divide-stone-100 flex-1 overflow-y-auto">
+          <div className="divide-y divide-[rgba(212,165,116,0.12)] flex-1 overflow-y-auto">
             {filtered.map((insp) => {
               const op = getOperation(insp.operationId);
               const agencyName = getAgencyName(op?.agencyId);
@@ -200,16 +209,16 @@ export default function Inspections() {
               return (
                 <div
                   key={insp.id}
-                  className="p-4 sm:p-5 hover:bg-stone-50/50 transition-colors group cursor-pointer"
+                  className="p-4 sm:p-5 hover:bg-[rgba(212,165,116,0.04)] transition-colors group cursor-pointer"
                   onClick={() => navigate(`/inspections/${insp.id}`)}
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                        <span className="text-base font-bold text-stone-900 group-hover:text-[#D49A6A] transition-colors truncate">
+                        <span className="text-base font-bold text-[#2a2420] group-hover:text-[#d4a574] transition-colors truncate">
                           {op?.name || 'Unknown Operation'}
                         </span>
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ${STATUS_COLORS[insp.status] || 'bg-stone-100 text-stone-600'}`}>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ${STATUS_COLORS[insp.status] || 'bg-[rgba(212,165,116,0.06)] text-[#7a6b5a]'}`}>
                           {insp.status}
                         </span>
                         {agencyName && (
@@ -218,29 +227,29 @@ export default function Inspections() {
                           </span>
                         )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-stone-500">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[#8b7355]">
                         <span className="flex items-center gap-1.5">
-                          <Calendar size={13} className="text-stone-400" />
+                          <Calendar size={13} className="text-[#a89b8c]" />
                           {new Date(insp.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                         </span>
                         {totalHours > 0 && (
                           <span className="flex items-center gap-1.5">
-                            <Clock size={13} className="text-stone-400" />
+                            <Clock size={13} className="text-[#a89b8c]" />
                             {totalHours}h total
                           </span>
                         )}
                         {(insp.milesDriven || 0) > 0 && (
                           <span className="flex items-center gap-1.5">
-                            <MapPin size={13} className="text-stone-400" />
+                            <MapPin size={13} className="text-[#a89b8c]" />
                             {insp.milesDriven} mi
                           </span>
                         )}
                         {insp.scope && (
-                          <span className="text-stone-400 truncate max-w-xs">{insp.scope}</span>
+                          <span className="text-[#a89b8c] truncate max-w-xs">{insp.scope}</span>
                         )}
                       </div>
                     </div>
-                    <ChevronRight size={18} className="text-stone-300 group-hover:text-[#D49A6A] transition-colors shrink-0" />
+                    <ChevronRight size={18} className="text-[#a89b8c] group-hover:text-[#d4a574] transition-colors shrink-0" />
                   </div>
                 </div>
               );

@@ -175,38 +175,38 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
   });
 
   return (
-    <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-100 flex flex-col h-full">
+    <div className="luxury-card rounded-[24px] p-6 flex flex-col h-full">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-base font-bold text-stone-900">{title}</h2>
+        <h2 className="text-base font-bold text-[#2a2420]">{title}</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto mb-4 space-y-2">
         {tasks.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-stone-400 py-8">
-            <CheckSquare size={32} className="text-stone-300 mb-3" strokeWidth={1.5} />
+          <div className="h-full flex flex-col items-center justify-center text-[#a89b8c] py-8">
+            <CheckSquare size={32} className="text-[#d4a574] mb-3" strokeWidth={1.5} />
             <p className="text-sm font-medium">All caught up!</p>
           </div>
         ) : (
           tasks.map(task => (
-            <div key={task.id} className="flex items-start gap-3 p-3 rounded-xl hover:bg-stone-50 group transition-colors border border-transparent hover:border-stone-100">
+            <div key={task.id} className="flex items-start gap-3 p-3 rounded-xl hover:bg-[rgba(212,165,116,0.04)] group transition-colors border border-transparent hover:border-[rgba(212,165,116,0.12)]">
               <button 
                 onClick={() => toggleTaskStatus(task)}
-                className="mt-0.5 text-stone-400 hover:text-[#D49A6A] transition-colors shrink-0"
+                className="mt-0.5 text-[#a89b8c] hover:text-[#d4a574] transition-colors shrink-0"
               >
                 {task.status === 'completed' ? (
-                  <CheckSquare size={18} className="text-[#D49A6A]" />
+                  <CheckSquare size={18} className="text-[#d4a574]" />
                 ) : (
                   <Square size={18} />
                 )}
               </button>
               <div className="flex-1 min-w-0">
-                <p className={`text-sm ${task.status === 'completed' ? 'text-stone-400 line-through' : 'text-stone-700'}`}>
+                <p className={`text-sm ${task.status === 'completed' ? 'text-[#a89b8c] line-through' : 'text-[#4a4038]'}`}>
                   {task.title}
                 </p>
                 {(task.operationId || task.inspectionId) && !operationId && !inspectionId && (
                   <div className="flex items-center gap-1 mt-1">
-                    <Tag size={10} className="text-stone-400" />
-                    <span className="text-[10px] font-medium text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded-md">
+                    <Tag size={10} className="text-[#a89b8c]" />
+                    <span className="text-[10px] font-medium text-[#8b7355] bg-[rgba(212,165,116,0.06)] px-1.5 py-0.5 rounded-md">
                       {task.operationId ? operations.find(o => o.id === task.operationId)?.name || 'Unknown Operation' : ''}
                       {task.inspectionId ? ' (Inspection)' : ''}
                     </span>
@@ -215,7 +215,7 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
               </div>
               <button 
                 onClick={() => deleteTask(task.id)}
-                className="text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shrink-0 p-1"
+                className="text-[#d4a574] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shrink-0 p-1"
               >
                 <Trash2 size={14} />
               </button>
@@ -227,7 +227,7 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
       <form onSubmit={addTask} className="relative mt-auto">
         {(taggedOperation || taggedInspection) && (
           <div className="flex items-center gap-1 mb-2">
-            <span className="text-xs font-medium text-[#D49A6A] bg-[#D49A6A]/10 px-2 py-1 rounded-md flex items-center gap-1">
+            <span className="text-xs font-medium text-[#d4a574] bg-[#d4a574]/10 px-2 py-1 rounded-md flex items-center gap-1">
               <Tag size={10} />
               {taggedOperation ? taggedOperation.name : ''}
               {taggedInspection ? `Inspection on ${new Date(taggedInspection.date).toLocaleDateString()}` : ''}
@@ -245,12 +245,12 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
             value={newTaskTitle}
             onChange={handleInputChange}
             placeholder={operationId || inspectionId ? "Add a task..." : "Add a task... (type @ to tag)"}
-            className="w-full bg-stone-50 border border-stone-200 rounded-xl pl-4 pr-10 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+            className="w-full luxury-input rounded-2xl pl-4 pr-10 py-3 text-sm outline-none"
           />
           <button 
             type="submit"
             disabled={!newTaskTitle.trim()}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-stone-400 hover:text-[#D49A6A] disabled:opacity-50 transition-colors"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-[#a89b8c] hover:text-[#d4a574] disabled:opacity-50 transition-colors"
           >
             <Plus size={18} />
           </button>
@@ -258,16 +258,16 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
 
         {/* Tag Menu */}
         {showTagMenu && (filteredOperations.length > 0 || filteredInspections.length > 0) && (
-          <div className="absolute bottom-full left-0 w-full mb-2 bg-white border border-stone-200 rounded-xl shadow-lg overflow-hidden z-10 max-h-48 overflow-y-auto">
+          <div className="absolute bottom-full left-0 w-full mb-2 bg-white border border-[rgba(212,165,116,0.15)] rounded-xl shadow-lg overflow-hidden z-10 max-h-48 overflow-y-auto">
             {filteredOperations.length > 0 && (
               <div className="p-2">
-                <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider px-2 mb-1">Operations</div>
+                <div className="text-[10px] font-bold text-[#a89b8c] uppercase tracking-wider px-2 mb-1">Operations</div>
                 {filteredOperations.map(op => (
                   <button
                     key={op.id}
                     type="button"
                     onClick={() => handleTagSelect('operation', op)}
-                    className="w-full text-left px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50 rounded-lg transition-colors"
+                    className="w-full text-left px-3 py-1.5 text-sm text-[#4a4038] hover:bg-[rgba(212,165,116,0.04)] rounded-lg transition-colors"
                   >
                     {op.name}
                   </button>
@@ -275,8 +275,8 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
               </div>
             )}
             {filteredInspections.length > 0 && (
-              <div className="p-2 border-t border-stone-100">
-                <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider px-2 mb-1">Inspections</div>
+              <div className="p-2 border-t border-[rgba(212,165,116,0.12)]">
+                <div className="text-[10px] font-bold text-[#a89b8c] uppercase tracking-wider px-2 mb-1">Inspections</div>
                 {filteredInspections.map(insp => {
                   const op = operations.find(o => o.id === insp.operationId);
                   return (
@@ -284,9 +284,9 @@ export default function TasksWidget({ operationId, inspectionId, title = "Tasks 
                       key={insp.id}
                       type="button"
                       onClick={() => handleTagSelect('inspection', insp)}
-                      className="w-full text-left px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50 rounded-lg transition-colors flex items-center gap-2"
+                      className="w-full text-left px-3 py-1.5 text-sm text-[#4a4038] hover:bg-[rgba(212,165,116,0.04)] rounded-lg transition-colors flex items-center gap-2"
                     >
-                      <Calendar size={12} className="text-stone-400" />
+                      <Calendar size={12} className="text-[#a89b8c]" />
                       {op?.name} - {new Date(insp.date).toLocaleDateString()}
                     </button>
                   );

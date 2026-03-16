@@ -15,7 +15,6 @@ interface InvoiceEmailModalProps {
   totalAmount: number;
   inspectionDate: string;
   pdfBlob: Blob;
-  signatureHtml: string;
   onSent: () => void;
 }
 
@@ -28,7 +27,6 @@ export default function InvoiceEmailModal({
   totalAmount,
   inspectionDate,
   pdfBlob,
-  signatureHtml,
   onSent,
 }: InvoiceEmailModalProps) {
   const { googleAccessToken } = useAuth();
@@ -61,7 +59,7 @@ export default function InvoiceEmailModal({
 
   const handleSend = async () => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
-    if (!token || token === 'dummy') {
+    if (!token) {
       Swal.fire({ text: 'Please sign in with Google to send emails.', icon: 'info' });
       return;
     }
@@ -73,12 +71,16 @@ export default function InvoiceEmailModal({
     setSending(true);
     try {
       const pdfBuffer = await pdfBlob.arrayBuffer();
-      const pdfBase64 = btoa(
-        new Uint8Array(pdfBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-      );
+      const bytes = new Uint8Array(pdfBuffer);
+      let binary = '';
+      const chunkSize = 8192;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      const pdfBase64 = btoa(binary);
 
       const boundary = `boundary_${Date.now()}`;
-      const htmlBody = body.replace(/\n/g, '<br>') + (signatureHtml ? `<br><br>${signatureHtml}` : '');
+      const htmlBody = body.replace(/\n/g, '<br>');
 
       const messageParts = [
         `To: ${toEmail}`,
@@ -111,7 +113,13 @@ export default function InvoiceEmailModal({
         body: JSON.stringify({ raw: encoded }),
       });
 
-      if (!res.ok) throw new Error(`Gmail send error: ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 401) {
+          Swal.fire({ text: 'Your Google session has expired. Please sign out and sign in again.', icon: 'warning' });
+          return;
+        }
+        throw new Error(`Gmail send error: ${res.status}`);
+      }
 
       Swal.fire({ text: 'Invoice sent!', icon: 'success', timer: 1500, showConfirmButton: false });
       onSent();
@@ -128,61 +136,65 @@ export default function InvoiceEmailModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
-        <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-stone-50/50 shrink-0">
-          <h2 className="text-lg font-bold text-stone-900">Send Invoice</h2>
-          <button onClick={onClose} className="p-2 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-100 transition-colors">
+    <div className="luxury-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="luxury-modal-card rounded-[28px] w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
+        <div className="px-6 py-5 flex items-center justify-between shrink-0">
+          <h2 className="font-serif-display text-2xl font-semibold text-[#2a2420]">Send Invoice</h2>
+          <button onClick={onClose} className="p-2 text-[#a89b8c] hover:text-[#2a2420] rounded-xl transition-colors">
             <X size={20} />
           </button>
         </div>
 
-        <div className="p-6 space-y-4 overflow-y-auto flex-1">
+        <div className="luxury-divider mx-6" />
+
+        <div className="p-6 space-y-5 overflow-y-auto flex-1">
           <div>
-            <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">To</label>
+            <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">To</label>
             <input
               type="email"
               value={toEmail}
               onChange={(e) => setToEmail(e.target.value)}
-              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all outline-none"
+              className="w-full luxury-input rounded-2xl px-4 py-3 text-sm font-body outline-none"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Subject</label>
+            <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">Subject</label>
             <input
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all outline-none"
+              className="w-full luxury-input rounded-2xl px-4 py-3 text-sm font-body outline-none"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Message</label>
+            <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">Message</label>
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={8}
-              className="w-full resize-none bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all outline-none"
+              className="w-full resize-none luxury-input rounded-2xl px-4 py-3 text-sm font-body outline-none"
             />
           </div>
-          <div className="flex items-center gap-2 text-sm text-stone-500 bg-stone-50 px-3 py-2 rounded-lg border border-stone-100">
-            <Paperclip size={14} />
-            <span>{invoiceNumber}.pdf</span>
-            <span className="text-xs text-stone-400">({(pdfBlob.size / 1024).toFixed(1)} KB)</span>
+          <div className="flex items-center gap-2.5 text-sm text-[#7a6b5a] font-body px-4 py-3 rounded-2xl" style={{ background: 'rgba(212, 165, 116, 0.08)', border: '1px solid rgba(212, 165, 116, 0.15)' }}>
+            <div className="luxury-icon-pill w-7 h-7 flex items-center justify-center rounded-lg">
+              <Paperclip size={14} className="text-[#d4a574]" />
+            </div>
+            <span className="font-medium text-[#2a2420]">{invoiceNumber}.pdf</span>
+            <span className="text-xs text-[#a89b8c]">({(pdfBlob.size / 1024).toFixed(1)} KB)</span>
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-stone-100 bg-stone-50/50 flex justify-end gap-3 shrink-0">
+        <div className="px-6 py-4 flex justify-end gap-3 shrink-0" style={{ borderTop: '1px solid rgba(212, 165, 116, 0.15)', background: 'linear-gradient(135deg, rgba(250,248,245,0.5) 0%, rgba(255,255,255,0.5) 100%)' }}>
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 rounded-xl transition-colors"
+            className="luxury-btn-secondary px-6 py-3 text-sm font-medium rounded-2xl transition-colors cursor-pointer"
           >
             Cancel
           </button>
           <button
             onClick={handleSend}
             disabled={sending || !toEmail}
-            className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            className="luxury-btn text-white px-8 py-4 rounded-2xl text-[15px] font-bold border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {sending ? 'Sending...' : 'Send Invoice'}
           </button>

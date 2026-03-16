@@ -67,14 +67,6 @@ describe('BusinessProfileTab', () => {
     })
   })
 
-  it('renders "Email Signature" heading after load', async () => {
-    render(<BusinessProfileTab />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Email Signature')).toBeInTheDocument()
-    })
-  })
-
   it('renders Save Changes button', async () => {
     render(<BusinessProfileTab />)
 

@@ -31,16 +31,20 @@ export function saveFile(
 }
 
 export function readFile(filePath: string): Buffer | null {
+  const resolved = path.resolve(filePath)
+  if (!resolved.startsWith(BASE_DIR)) return null
   try {
-    return fs.readFileSync(filePath)
+    return fs.readFileSync(resolved)
   } catch {
     return null
   }
 }
 
 export function deleteFile(filePath: string): boolean {
+  const resolved = path.resolve(filePath)
+  if (!resolved.startsWith(BASE_DIR)) return false
   try {
-    fs.unlinkSync(filePath)
+    fs.unlinkSync(resolved)
     return true
   } catch {
     return false

@@ -24,14 +24,16 @@ export default function Schedule() {
   const navigate = useNavigate();
   const { findAll: findAllInspections, save: saveInspection } = useDatabase<Inspection>({ table: 'inspections' });
   const { findAll: findAllOperations } = useDatabase<Operation>({ table: 'operations' });
-  
+
   const [events, setEvents] = useState<InspectionEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  // Store inspections in state so the Google Calendar sync can access them
+  const [inspections, setInspections] = useState<Inspection[]>([]);
 
   const hasGoogleToken = Boolean(
     googleAccessToken ||
-    (typeof localStorage !== 'undefined' && localStorage.getItem('googleAccessToken') && localStorage.getItem('googleAccessToken') !== 'dummy')
+    (typeof localStorage !== 'undefined' && !!localStorage.getItem('googleAccessToken'))
   );
 
   useEffect(() => {
@@ -50,18 +52,36 @@ export default function Schedule() {
         const inspectionsData = await findAllInspections();
         setInspections(inspectionsData);
         const eventsData: InspectionEvent[] = [];
-        
+
         inspectionsData.forEach((inspection) => {
           if (inspection.date) {
             // Parse the start date (YYYY-MM-DD format)
-            const [year, month, day] = inspection.date.split('-');
-            const startDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            const dateParts = inspection.date.split('-');
+            if (dateParts.length !== 3) return; // skip malformed date strings
+            const [year, month, day] = dateParts;
+            const parsedYear = parseInt(year);
+            const parsedMonth = parseInt(month);
+            const parsedDay = parseInt(day);
+            if (isNaN(parsedYear) || isNaN(parsedMonth) || isNaN(parsedDay)) return;
+            const startDate = new Date(parsedYear, parsedMonth - 1, parsedDay);
 
             // Parse the end date if present; otherwise default to start date
             let endDate = startDate;
             if (inspection.endDate) {
-              const [eYear, eMonth, eDay] = inspection.endDate.split('-');
-              endDate = new Date(parseInt(eYear), parseInt(eMonth) - 1, parseInt(eDay));
+              const endParts = inspection.endDate.split('-');
+              if (endParts.length !== 3) {
+                endDate = startDate;
+              } else {
+                const [eYear, eMonth, eDay] = endParts;
+                const pe = parseInt(eYear);
+                const pm = parseInt(eMonth);
+                const pd = parseInt(eDay);
+                if (isNaN(pe) || isNaN(pm) || isNaN(pd)) {
+                  endDate = startDate;
+                } else {
+                  endDate = new Date(pe, pm - 1, pd);
+                }
+              }
             }
 
             eventsData.push({
@@ -75,7 +95,7 @@ export default function Schedule() {
             });
           }
         });
-        
+
         setEvents(eventsData);
         setLoading(false);
       } catch (error) {
@@ -87,14 +107,11 @@ export default function Schedule() {
     fetchOperationsAndInspections();
   }, [user, findAllInspections, findAllOperations]);
 
-  // Store inspections in state so the Google Calendar sync can access them
-  const [inspections, setInspections] = useState<Inspection[]>([]);
-
   // Pull changes from Google Calendar -> Firestore.
   // Returns the number of Firestore documents that were updated.
   const fetchUpdatesFromGoogleCalendar = useCallback(async (): Promise<number> => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
-    if (!token || token === 'dummy' || !user) return 0;
+    if (!token || !user) return 0;
 
     const syncableEvents = events.filter(e => e.status === 'Scheduled' && e.googleCalendarEventId);
     if (syncableEvents.length === 0) return 0;
@@ -164,7 +181,7 @@ export default function Schedule() {
     initialSyncRan.current = true;
 
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
-    if (!token || token === 'dummy') return;
+    if (!token) return;
 
     fetchUpdatesFromGoogleCalendar().then(count => {
       if (count > 0) {
@@ -175,7 +192,7 @@ export default function Schedule() {
 
   const handleGoogleCalendarSync = async () => {
     const token = googleAccessToken || localStorage.getItem('googleAccessToken');
-    if (!token || token === 'dummy') {
+    if (!token) {
       Swal.fire({ text: 'Please sign in with Google to sync to Calendar. If you are signed in, your session may have expired — try signing out and back in.', icon: 'info' });
       return;
     }
@@ -313,53 +330,53 @@ export default function Schedule() {
     <div className="animate-in fade-in duration-500 h-[calc(100vh-8rem)] flex flex-col">
       <div className="flex justify-between items-end mb-6 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-stone-100">
-            <CalendarIcon size={24} className="text-[#D49A6A]" />
+          <div className="w-12 h-12 luxury-card rounded-2xl flex items-center justify-center">
+            <CalendarIcon size={24} className="text-[#d4a574]" />
           </div>
           <div>
-            <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">Schedule</h1>
-            <p className="mt-1 text-stone-500 text-sm">Manage your upcoming inspections.</p>
+            <h1 className="font-serif-display text-[36px] font-semibold text-[#2a2420] tracking-tight">Schedule</h1>
+            <p className="mt-1 text-[#8b7355] text-sm font-medium">Manage your upcoming inspections.</p>
           </div>
         </div>
 
         <button
           onClick={handleGoogleCalendarSync}
           disabled={syncing}
-          className="px-4 py-2 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
+          className="px-4 py-2 bg-white border border-[rgba(212,165,116,0.15)] text-[#4a4038] rounded-xl text-sm font-medium hover:bg-[rgba(212,165,116,0.04)] transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60"
         >
           {syncing ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
           {syncing ? 'Syncing...' : 'Sync with Google Calendar'}
         </button>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-stone-100 flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="luxury-card rounded-[24px] flex-1 flex flex-col min-h-0 overflow-hidden">
         {loading ? (
-          <div className="flex-1 flex items-center justify-center text-stone-500">
+          <div className="flex-1 flex items-center justify-center text-[#8b7355]">
             Loading schedule...
           </div>
         ) : hasGoogleToken ? (
           <iframe
             src="https://calendar.google.com/calendar/embed?src=primary&mode=MONTH"
             title="Google Calendar"
-            className="w-full flex-1 border-0 rounded-3xl"
+            className="w-full flex-1 border-0 rounded-[24px]"
             style={{ minHeight: 0 }}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-4">
-            <div className="w-16 h-16 bg-stone-50 rounded-2xl flex items-center justify-center border border-stone-100">
-              <CalendarIcon size={32} className="text-stone-300" />
+            <div className="w-16 h-16 bg-[rgba(212,165,116,0.04)] rounded-2xl flex items-center justify-center border border-[rgba(212,165,116,0.12)]">
+              <CalendarIcon size={32} className="text-[#d4a574]" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-stone-700 mb-1">
+              <h2 className="text-lg font-semibold text-[#4a4038] mb-1">
                 Google Calendar not connected
               </h2>
-              <p className="text-stone-500 text-sm max-w-md">
+              <p className="text-[#8b7355] text-sm max-w-md">
                 Sign in with Google in Settings to view your calendar here and sync inspection events.
               </p>
             </div>
             <button
               onClick={() => navigate('/settings')}
-              className="mt-2 px-5 py-2.5 bg-[#D49A6A] text-white rounded-xl text-sm font-medium hover:bg-[#c08a5a] transition-colors flex items-center gap-2 shadow-sm"
+              className="mt-2 px-5 py-2.5 luxury-btn text-white rounded-xl text-sm font-bold border-0 cursor-pointer transition-colors flex items-center gap-2 shadow-sm"
             >
               <Settings size={16} />
               Go to Settings

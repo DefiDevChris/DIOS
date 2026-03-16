@@ -21,17 +21,17 @@ describe('InspectionProgressBar', () => {
     const prep = screen.getByText('Prep')
     const inspected = screen.getByText('Inspected')
 
-    expect(scheduled).toHaveClass('text-[#D49A6A]')
-    expect(prep).toHaveClass('text-[#D49A6A]')
-    expect(inspected).toHaveClass('text-[#D49A6A]')
+    expect(scheduled).toHaveClass('text-[#d4a574]')
+    expect(prep).toHaveClass('text-[#d4a574]')
+    expect(inspected).toHaveClass('text-[#d4a574]')
 
     const report = screen.getByText('Report')
     const invoiced = screen.getByText('Invoiced')
     const paid = screen.getByText('Paid')
 
-    expect(report).toHaveClass('text-stone-400')
-    expect(invoiced).toHaveClass('text-stone-400')
-    expect(paid).toHaveClass('text-stone-400')
+    expect(report).toHaveClass('text-[#a89b8c]')
+    expect(invoiced).toHaveClass('text-[#a89b8c]')
+    expect(paid).toHaveClass('text-[#a89b8c]')
   })
 
   it('fires onStepClick for clickable steps at or before current', () => {
@@ -77,7 +77,7 @@ describe('InspectionProgressBar', () => {
     render(<InspectionProgressBar currentStatus={null} onStepClick={onStepClick} />)
 
     for (const label of STEP_LABELS) {
-      expect(screen.getByText(label)).toHaveClass('text-stone-400')
+      expect(screen.getByText(label)).toHaveClass('text-[#a89b8c]')
     }
   })
 
@@ -86,7 +86,7 @@ describe('InspectionProgressBar', () => {
     render(<InspectionProgressBar currentStatus="Paid" onStepClick={onStepClick} />)
 
     for (const label of STEP_LABELS) {
-      expect(screen.getByText(label)).toHaveClass('text-[#D49A6A]')
+      expect(screen.getByText(label)).toHaveClass('text-[#d4a574]')
     }
   })
 })

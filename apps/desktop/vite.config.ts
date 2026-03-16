@@ -15,6 +15,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    sourcemap: false,
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),

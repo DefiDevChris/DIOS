@@ -17,9 +17,10 @@ export type { UnassignedUpload };
 
 // Local interface extending the shared type with additional UI-specific fields
 interface UnassignedUploadUI extends UnassignedUpload {
-  downloadURL: string;
-  storagePath: string;
-  fileSize: number;
+  /** URL from Firestore; falls back to fileUrl from shared type */
+  downloadURL?: string;
+  storagePath?: string;
+  fileSize?: number;
 }
 
 interface Operation {
@@ -62,6 +63,7 @@ export default function ProcessUploadModal({
   const isImage = upload.fileType.startsWith('image/');
   const selectedOp = operations.find(o => o.id === selectedOpId);
   const canClose = phase !== 'scanning' && phase !== 'processing' && !saving;
+  const uploadUrl = upload.downloadURL || upload.fileUrl;
 
   const handleProcess = async () => {
     if (!user) return;
@@ -71,7 +73,7 @@ export default function ProcessUploadModal({
       setOcrStatus('Initializing OCR…');
       let worker;
       try {
-        const response = await fetch(upload.downloadURL);
+        const response = await fetch(uploadUrl);
         const blob = await response.blob();
 
         worker = await createWorker('eng', 1, {
@@ -102,7 +104,7 @@ export default function ProcessUploadModal({
     } else {
       setPhase('processing');
       try {
-        const response = await fetch(upload.downloadURL);
+        const response = await fetch(uploadUrl);
         const blob = await response.blob();
         const year = new Date().getFullYear();
         const folderName = selectedOp?.name ?? 'Unassigned Uploads';
@@ -133,7 +135,7 @@ export default function ProcessUploadModal({
     setSaving(true);
 
     try {
-      const response = await fetch(upload.downloadURL);
+      const response = await fetch(uploadUrl);
       const blob = await response.blob();
 
       const expenseId = crypto.randomUUID();
@@ -173,40 +175,52 @@ export default function ProcessUploadModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="luxury-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+      <div className="luxury-modal-card rounded-[28px] w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Header */}
-        <div className="bg-[#D49A6A] text-white px-6 py-4 flex justify-between items-center shrink-0">
-          <h2 className="font-bold tracking-wider uppercase text-sm">Process Upload</h2>
+        <div
+          className="px-6 py-4 flex justify-between items-center shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, rgba(212,165,116,0.12) 0%, rgba(212,165,116,0.05) 100%)',
+            borderBottom: '1px solid rgba(212,165,116,0.15)',
+          }}
+        >
+          <h2 className="font-serif-display text-xl font-semibold text-[#2a2420]">Process Upload</h2>
           <button
             onClick={onClose}
             disabled={!canClose}
-            className="text-white/80 hover:text-white transition-colors p-1 disabled:opacity-50"
+            className="text-[#a89b8c] hover:text-[#2a2420] transition-colors p-1 disabled:opacity-50"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 bg-stone-50">
+        <div className="flex-1 overflow-y-auto p-6">
 
           {phase === 'success' ? (
-            <div className="flex flex-col items-center justify-center text-emerald-600 h-48 animate-in zoom-in duration-300">
-              <CheckCircle size={48} className="mb-3" />
-              <p className="font-bold text-lg">Processed Successfully</p>
+            <div className="flex flex-col items-center justify-center text-[#d4a574] h-48 animate-in zoom-in duration-300">
+              <div className="luxury-check-orb checked mb-3">
+                <CheckCircle size={48} />
+              </div>
+              <p className="font-serif-display font-semibold text-lg text-[#2a2420]">Processed Successfully</p>
             </div>
 
           ) : phase === 'scanning' ? (
             <div className="flex flex-col items-center justify-center h-48 gap-4">
-              <ScanLine size={36} className="text-[#D49A6A] animate-pulse" />
-              <p className="text-sm text-stone-600 text-center px-4">{ocrStatus}</p>
+              <div className="luxury-icon-pill">
+                <ScanLine size={36} className="text-[#d4a574] animate-pulse" />
+              </div>
+              <p className="text-sm text-[#7a6b5a] font-body text-center px-4">{ocrStatus}</p>
             </div>
 
           ) : phase === 'processing' ? (
             <div className="flex flex-col items-center justify-center h-48 gap-4">
-              <Loader2 size={36} className="text-[#D49A6A] animate-spin" />
-              <p className="text-sm text-stone-600">Moving file to Drive…</p>
+              <div className="luxury-icon-pill">
+                <Loader2 size={36} className="text-[#d4a574] animate-spin" />
+              </div>
+              <p className="text-sm text-[#7a6b5a] font-body">Moving file to Drive…</p>
             </div>
 
           ) : phase === 'assign' ? (
@@ -214,9 +228,9 @@ export default function ProcessUploadModal({
 
               {/* Image preview */}
               {isImage && (
-                <div className="w-full rounded-2xl overflow-hidden bg-stone-100 max-h-64 flex items-center justify-center">
+                <div className="w-full rounded-[20px] overflow-hidden max-h-64 flex items-center justify-center" style={{ border: '1px solid rgba(212,165,116,0.15)' }}>
                   <img
-                    src={upload.downloadURL}
+                    src={uploadUrl}
                     alt={upload.fileName}
                     className="max-h-64 object-contain"
                   />
@@ -224,27 +238,27 @@ export default function ProcessUploadModal({
               )}
 
               <div>
-                <p className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-1">File</p>
-                <p className="text-sm text-stone-700 font-medium truncate">{upload.fileName}</p>
+                <p className="text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">File</p>
+                <p className="text-sm text-[#2a2420] font-medium font-body truncate">{upload.fileName}</p>
               </div>
 
               {/* Operation picker */}
               <div>
-                <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">
                   Assign to Operation
                 </label>
                 <div className="relative">
                   <select
                     value={selectedOpId}
                     onChange={(e) => setSelectedOpId(e.target.value)}
-                    className="w-full appearance-none bg-white border border-stone-200 rounded-xl px-3 py-2.5 text-sm pr-8 focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A]"
+                    className="luxury-input w-full appearance-none rounded-2xl px-4 py-3 text-sm font-body outline-none pr-8"
                   >
                     <option value="">No operation (unassigned)</option>
                     {operations.map(op => (
                       <option key={op.id} value={op.id}>{op.name}</option>
                     ))}
                   </select>
-                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a89b8c] pointer-events-none" />
                 </div>
               </div>
 
@@ -252,11 +266,7 @@ export default function ProcessUploadModal({
               {isImage && (
                 <label className="flex items-center gap-3 cursor-pointer group select-none">
                   <div
-                    className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${
-                      isReceipt
-                        ? 'bg-[#D49A6A] border-[#D49A6A]'
-                        : 'border-stone-300 group-hover:border-[#D49A6A]'
-                    }`}
+                    className={`luxury-check-orb${isReceipt ? ' checked' : ''}`}
                     onClick={() => setIsReceipt(v => !v)}
                   >
                     {isReceipt && <Check size={12} className="text-white" />}
@@ -268,8 +278,8 @@ export default function ProcessUploadModal({
                     onChange={e => setIsReceipt(e.target.checked)}
                   />
                   <div>
-                    <p className="text-sm font-semibold text-stone-800">Is this a receipt?</p>
-                    <p className="text-xs text-stone-500">OCR will extract vendor, date, and amount automatically</p>
+                    <p className="text-sm font-semibold text-[#2a2420] font-body">Is this a receipt?</p>
+                    <p className="text-xs text-[#a89b8c] font-body">OCR will extract vendor, date, and amount automatically</p>
                   </div>
                 </label>
               )}
@@ -280,15 +290,15 @@ export default function ProcessUploadModal({
 
               {/* Image preview */}
               <div className="w-full md:w-2/5 shrink-0">
-                <div className="aspect-[3/4] bg-stone-200 rounded-2xl overflow-hidden flex items-center justify-center">
+                <div className="aspect-[3/4] rounded-[20px] overflow-hidden flex items-center justify-center" style={{ border: '1px solid rgba(212,165,116,0.15)' }}>
                   <img
-                    src={upload.downloadURL}
+                    src={uploadUrl}
                     alt="Receipt"
                     className="w-full h-full object-contain"
                   />
                 </div>
                 {ocrStatus && ocrStatus !== 'Done' && (
-                  <p className="text-xs text-amber-600 text-center mt-2">{ocrStatus}</p>
+                  <p className="text-xs text-[#d4a574] font-body text-center mt-2">{ocrStatus}</p>
                 )}
               </div>
 
@@ -296,28 +306,28 @@ export default function ProcessUploadModal({
               <div className="flex-1">
                 <form id="expense-form" onSubmit={handleSaveExpense} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Date</label>
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">Date</label>
                     <input
                       type="date"
                       required
                       value={date}
                       onChange={e => setDate(e.target.value)}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                      className="luxury-input w-full rounded-2xl px-4 py-3 text-sm font-body outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Vendor / Payee</label>
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">Vendor / Payee</label>
                     <input
                       type="text"
                       required
                       value={vendor}
                       onChange={e => setVendor(e.target.value)}
                       placeholder="e.g., Home Depot"
-                      className="w-full bg-white border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                      className="luxury-input w-full rounded-2xl px-4 py-3 text-sm font-body outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Amount ($)</label>
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">Amount ($)</label>
                     <input
                       type="number"
                       step="0.01"
@@ -325,17 +335,17 @@ export default function ProcessUploadModal({
                       value={amount}
                       onChange={e => setAmount(e.target.value)}
                       placeholder="0.00"
-                      className="w-full bg-white border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all"
+                      className="luxury-input w-full rounded-2xl px-4 py-3 text-sm font-body outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Notes (Optional)</label>
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">Notes (Optional)</label>
                     <textarea
                       value={notes}
                       onChange={e => setNotes(e.target.value)}
                       rows={3}
                       placeholder="What was this for?"
-                      className="w-full bg-white border border-stone-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#D49A6A]/20 focus:border-[#D49A6A] transition-all resize-none"
+                      className="luxury-input w-full rounded-2xl px-4 py-3 text-sm font-body outline-none resize-none"
                     />
                   </div>
                 </form>
@@ -348,12 +358,18 @@ export default function ProcessUploadModal({
 
         {/* Footer */}
         {(phase === 'assign' || phase === 'expense-form') && (
-          <div className="bg-white px-6 py-4 border-t border-stone-100 flex justify-end gap-3 shrink-0">
+          <div
+            className="px-6 py-4 flex justify-end gap-3 shrink-0"
+            style={{
+              background: 'linear-gradient(135deg, rgba(212,165,116,0.06) 0%, rgba(212,165,116,0.02) 100%)',
+              borderTop: '1px solid rgba(212,165,116,0.15)',
+            }}
+          >
             <button
               type="button"
               onClick={onClose}
               disabled={saving}
-              className="px-5 py-2.5 text-sm font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-colors disabled:opacity-50"
+              className="luxury-btn-secondary px-5 py-3.5 text-sm font-semibold text-[#7a6b5a] rounded-2xl disabled:opacity-50"
             >
               Cancel
             </button>
@@ -361,7 +377,7 @@ export default function ProcessUploadModal({
             {phase === 'assign' ? (
               <button
                 onClick={handleProcess}
-                className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
+                className="luxury-btn text-white px-8 py-3.5 rounded-2xl text-sm font-bold border-0 cursor-pointer flex items-center gap-2"
               >
                 {isReceipt
                   ? <><ScanLine size={16} /> Scan Receipt</>
@@ -373,7 +389,7 @@ export default function ProcessUploadModal({
                 type="submit"
                 form="expense-form"
                 disabled={saving || !vendor || !amount}
-                className="bg-[#D49A6A] hover:bg-[#c28a5c] text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="luxury-btn text-white px-8 py-3.5 rounded-2xl text-sm font-bold border-0 cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? (
                   <><Loader2 size={16} className="animate-spin" /> Saving…</>
