@@ -37,7 +37,7 @@ export default function Drive() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+  const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
 
   const currentFolderId = folderStack.length > 0 ? folderStack[folderStack.length - 1].id : null;
 

@@ -243,7 +243,7 @@ export default function Reports() {
       }
 
       try {
-        const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+        const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
         if (token) {
           const metadata = { name: fileName, mimeType: 'application/pdf' };
           const form = new FormData();

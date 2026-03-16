@@ -41,12 +41,6 @@ vi.mock('sweetalert2', () => ({
   default: { fire: vi.fn().mockResolvedValue({ isConfirmed: true }) },
 }))
 
-vi.mock('./SignatureEditor', () => ({
-  default: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <textarea data-testid="signature-editor" value={value} onChange={(e) => onChange(e.target.value)} />
-  ),
-}))
-
 import BusinessProfileTab from './BusinessProfileTab'
 
 describe('BusinessProfileTab', () => {

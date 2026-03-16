@@ -6,6 +6,16 @@ import { logger } from '@dios/shared';
 import { X, Paperclip } from 'lucide-react';
 import Swal from 'sweetalert2';
 
+/** Encode a string to base64, handling Unicode correctly (replaces deprecated unescape/escape hack) */
+function textToBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 interface InvoiceEmailModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -58,7 +68,7 @@ export default function InvoiceEmailModal({
   const [sending, setSending] = useState(false);
 
   const handleSend = async () => {
-    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
     if (!token) {
       Swal.fire({ text: 'Please sign in with Google to send emails.', icon: 'info' });
       return;
@@ -102,7 +112,7 @@ export default function InvoiceEmailModal({
         `--${boundary}--`,
       ].join('\r\n');
 
-      const encoded = btoa(unescape(encodeURIComponent(messageParts)))
+      const encoded = textToBase64(messageParts)
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/, '');

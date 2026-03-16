@@ -221,7 +221,7 @@ export default function Operations() {
 
       // Fire-and-forget: create Google Drive folder for new operations
       if (!editingOp) {
-        const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+        const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
         if (token) {
           const agencyName = agencies.find(a => a.id === formData.agencyId)?.name || 'Unknown Agency';
           ensureOperationFolder(token, user.uid, agencyName, formData.name).catch(err => {

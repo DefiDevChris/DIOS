@@ -41,7 +41,7 @@ export function useDatabase<T extends { id: string }>({ table, parentPath }: Use
         return results.map(convertBooleans<T>)
       } catch (error) {
         logger.error(`IPC findAll failed for table "${table}":`, error)
-        return []
+        throw error
       }
     }
     if (!firestoreDb || !userId) return []
@@ -63,7 +63,7 @@ export function useDatabase<T extends { id: string }>({ table, parentPath }: Use
         return result ? convertBooleans<T>(result) : null
       } catch (error) {
         logger.error(`IPC findById failed for table "${table}", id "${id}":`, error)
-        return null
+        throw error
       }
     }
     if (!firestoreDb || !userId) return null

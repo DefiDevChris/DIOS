@@ -161,8 +161,8 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
 
         // Store token for AuthContext to pick up after reload
         const expiryTs = Date.now() + response.expires_in * 1000 - 60_000;
-        localStorage.setItem('googleAccessToken', response.access_token);
-        localStorage.setItem('googleAccessTokenExpiry', String(expiryTs));
+        sessionStorage.setItem('googleAccessToken', response.access_token);
+        sessionStorage.setItem('googleAccessTokenExpiry', String(expiryTs));
 
         // Fetch user profile
         try {

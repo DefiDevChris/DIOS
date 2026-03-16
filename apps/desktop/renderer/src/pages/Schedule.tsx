@@ -33,7 +33,7 @@ export default function Schedule() {
 
   const hasGoogleToken = Boolean(
     googleAccessToken ||
-    (typeof localStorage !== 'undefined' && !!localStorage.getItem('googleAccessToken'))
+    (typeof sessionStorage !== 'undefined' && !!sessionStorage.getItem('googleAccessToken'))
   );
 
   useEffect(() => {
@@ -110,7 +110,7 @@ export default function Schedule() {
   // Pull changes from Google Calendar -> Firestore.
   // Returns the number of Firestore documents that were updated.
   const fetchUpdatesFromGoogleCalendar = useCallback(async (): Promise<number> => {
-    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
     if (!token || !user) return 0;
 
     const syncableEvents = events.filter(e => e.status === 'Scheduled' && e.googleCalendarEventId);
@@ -180,7 +180,7 @@ export default function Schedule() {
     if (loading || initialSyncRan.current) return;
     initialSyncRan.current = true;
 
-    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
     if (!token) return;
 
     fetchUpdatesFromGoogleCalendar().then(count => {
@@ -191,7 +191,7 @@ export default function Schedule() {
   }, [loading, fetchUpdatesFromGoogleCalendar, googleAccessToken]);
 
   const handleGoogleCalendarSync = async () => {
-    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
     if (!token) {
       Swal.fire({ text: 'Please sign in with Google to sync to Calendar. If you are signed in, your session may have expired — try signing out and back in.', icon: 'info' });
       return;

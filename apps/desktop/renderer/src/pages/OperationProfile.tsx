@@ -258,7 +258,7 @@ export default function OperationProfile() {
   };
 
   const sendTemplatedEmail = async () => {
-    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
     if (!token) {
       Swal.fire({ text: 'Please sign in with Google to send emails.', icon: 'info' });
       return;
@@ -312,7 +312,7 @@ export default function OperationProfile() {
   };
 
   const createCalendarEvent = async (inspectionId: string, operationName: string, date: string, scope?: string) => {
-    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
     if (!token || !user) return;
 
     try {
@@ -1055,13 +1055,15 @@ export default function OperationProfile() {
       )}
 
       {/* Nearby Operators Modal */}
-      <NearbyOperatorsModal
-        isOpen={showNearbyModal}
-        onClose={() => setShowNearbyModal(false)}
-        currentOperation={operation as any}
-        operations={otherOperations as any[]}
-        agencies={allAgencies}
-      />
+      {operation && (
+        <NearbyOperatorsModal
+          isOpen={showNearbyModal}
+          onClose={() => setShowNearbyModal(false)}
+          currentOperation={operation}
+          operations={otherOperations}
+          agencies={allAgencies}
+        />
+      )}
     </div>
   );
 }

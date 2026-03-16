@@ -100,7 +100,13 @@ export async function pullFromFirestore(config: SyncConfig): Promise<void> {
         const existing = db.prepare(`SELECT updatedAt, syncStatus FROM ${table} WHERE id = ?`).get(docId) as { updatedAt: string; syncStatus: string } | undefined
 
         // Skip if local record is pending (has unsent local changes)
-        if (existing?.syncStatus === 'pending') continue
+        if (existing?.syncStatus === 'pending') {
+          const remoteTime = (record.updatedAt as string) ?? (firestoreDoc.updateTime ?? '')
+          if (remoteTime && existing.updatedAt && remoteTime > existing.updatedAt) {
+            logger.warn(`Sync conflict on ${table}/${docId}: local pending changes will overwrite newer remote data`)
+          }
+          continue
+        }
 
         const remoteUpdatedAt = (record.updatedAt as string) ?? (firestoreDoc.updateTime ?? '')
         if (existing && existing.updatedAt >= remoteUpdatedAt) continue
@@ -131,7 +137,7 @@ export async function pullFromFirestore(config: SyncConfig): Promise<void> {
 
 async function pullOperationSubCollections(config: SyncConfig): Promise<void> {
   const db = getDatabase()
-  const operations = db.prepare('SELECT id FROM operations').all() as Array<{ id: string }>
+  const operations = db.prepare("SELECT id FROM operations WHERE status = 'active'").all() as Array<{ id: string }>
 
   for (const op of operations) {
     for (const [subCollection, table] of [['documents', 'operation_documents'], ['activities', 'operation_activities']] as const) {
@@ -160,7 +166,13 @@ async function pullOperationSubCollections(config: SyncConfig): Promise<void> {
           }
 
           const existing = db.prepare(`SELECT updatedAt, syncStatus FROM ${table} WHERE id = ?`).get(docId) as { updatedAt: string; syncStatus: string } | undefined
-          if (existing?.syncStatus === 'pending') continue
+          if (existing?.syncStatus === 'pending') {
+            const remoteTime = (record.updatedAt as string) ?? (firestoreDoc.updateTime ?? '')
+            if (remoteTime && existing.updatedAt && remoteTime > existing.updatedAt) {
+              logger.warn(`Sync conflict on ${table}/${docId}: local pending changes will overwrite newer remote data`)
+            }
+            continue
+          }
 
           const remoteUpdatedAt = (record.updatedAt as string) ?? (firestoreDoc.updateTime ?? '')
           if (existing && existing.updatedAt >= remoteUpdatedAt) continue

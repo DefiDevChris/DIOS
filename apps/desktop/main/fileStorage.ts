@@ -34,7 +34,9 @@ export function readFile(filePath: string): Buffer | null {
   const resolved = path.resolve(filePath)
   if (!resolved.startsWith(BASE_DIR)) return null
   try {
-    return fs.readFileSync(resolved)
+    const real = fs.realpathSync(resolved)
+    if (!real.startsWith(fs.realpathSync(BASE_DIR))) return null
+    return fs.readFileSync(real)
   } catch {
     return null
   }
@@ -44,7 +46,9 @@ export function deleteFile(filePath: string): boolean {
   const resolved = path.resolve(filePath)
   if (!resolved.startsWith(BASE_DIR)) return false
   try {
-    fs.unlinkSync(resolved)
+    const real = fs.realpathSync(resolved)
+    if (!real.startsWith(fs.realpathSync(BASE_DIR))) return false
+    fs.unlinkSync(real)
     return true
   } catch {
     return false

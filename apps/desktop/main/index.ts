@@ -34,20 +34,47 @@ let storedSyncConfig: { firestoreToken: string; driveToken: string; userId: stri
 /** Refresh the Firestore ID token by asking Firebase REST API to exchange the stored refresh token.
  *  We store the Firebase refresh token alongside the sync config so the main process can refresh independently. */
 async function refreshFirestoreToken(refreshToken: string, apiKey: string): Promise<string> {
-  const res = await fetch(
-    `https://securetoken.googleapis.com/v1/token?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`,
+  const MAX_ATTEMPTS = 3
+  const BACKOFF_MS = [1000, 3000]
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(
+        `https://securetoken.googleapis.com/v1/token?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`,
+        }
+      )
+      if (!res.ok) {
+        // Don't retry client errors (except 429 rate limit)
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+          throw new Error(`Token refresh failed: ${res.status}`)
+        }
+        lastError = new Error(`Token refresh failed: ${res.status}`)
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]))
+          continue
+        }
+        throw lastError
+      }
+      const data = await res.json()
+      if (!data.id_token) {
+        throw new Error(data.error_description || data.error || 'Token refresh failed — no id_token in response')
+      }
+      return data.id_token as string
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      // Non-retryable errors (4xx) are already thrown above; only retry on network errors
+      if (attempt < MAX_ATTEMPTS - 1) {
+        logger.warn(`Token refresh attempt ${attempt + 1} failed, retrying:`, lastError.message)
+        await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]))
+      }
     }
-  )
-  if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`)
-  const data = await res.json()
-  if (!data.id_token) {
-    throw new Error(data.error_description || data.error || 'Token refresh failed — no id_token in response')
   }
-  return data.id_token as string
+  throw lastError ?? new Error('Token refresh failed after retries')
 }
 
 // Load config on startup
@@ -116,6 +143,8 @@ ipcMain.handle('app:isOnline', () => {
 // OAuth popup window for desktop
 ipcMain.handle('auth:openOAuthWindow', async (_event: Electron.IpcMainInvokeEvent, authUrl: string): Promise<string> => {
   return new Promise((resolve, reject) => {
+    let resolved = false
+
     const authWindow = new BrowserWindow({
       width: 600,
       height: 700,
@@ -127,17 +156,40 @@ ipcMain.handle('auth:openOAuthWindow', async (_event: Electron.IpcMainInvokeEven
       },
     })
 
-    authWindow.loadURL(authUrl)
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        authWindow.close()
+        reject(new Error('OAuth timed out after 5 minutes'))
+      }
+    }, 5 * 60 * 1000)
 
-    authWindow.webContents.on('will-redirect', (_event, url) => {
+    const tryResolve = (url: string): void => {
+      if (resolved) return
       if (url.startsWith('http://localhost') || url.includes('/__/auth/handler')) {
+        resolved = true
+        clearTimeout(timeout)
         resolve(url)
         authWindow.close()
       }
+    }
+
+    authWindow.loadURL(authUrl)
+
+    authWindow.webContents.on('will-redirect', (_event, url) => {
+      tryResolve(url)
+    })
+
+    authWindow.webContents.on('will-navigate', (_event, url) => {
+      tryResolve(url)
     })
 
     authWindow.on('closed', () => {
-      reject(new Error('Auth window was closed'))
+      clearTimeout(timeout)
+      if (!resolved) {
+        resolved = true
+        reject(new Error('Auth window was closed'))
+      }
     })
   })
 })
@@ -284,8 +336,15 @@ app.whenReady().then(async () => {
 
   // Check for updates in production (silently, notify when available)
   if (process.env.NODE_ENV !== 'development') {
-    import('electron-updater').then(({ autoUpdater }) => {
-      autoUpdater.checkForUpdatesAndNotify().catch((err: Error) => {
+    import('electron-updater').then((mod) => {
+      const updater = mod.autoUpdater as any
+      updater.on('update-available', (info: { version: string }) => {
+        mainWindow?.webContents.send('updater:status', { status: 'available', version: info.version })
+      })
+      updater.on('update-downloaded', (info: { version: string }) => {
+        mainWindow?.webContents.send('updater:status', { status: 'downloaded', version: info.version })
+      })
+      updater.checkForUpdatesAndNotify().catch((err: Error) => {
         logger.warn('Auto-updater check failed:', err)
       })
     }).catch(() => { /* electron-updater not installed */ })

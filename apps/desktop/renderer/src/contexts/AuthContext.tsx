@@ -66,9 +66,18 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshGoogleToken: () => Promise<string>;
+  _getValidToken?: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/** Access Firebase internal refresh token (not in public User type) */
+function getFirebaseRefreshToken(user: User): string | undefined {
+  const u = user as unknown as Record<string, unknown>
+  const mgr = u.stsTokenManager as Record<string, unknown> | undefined
+  const delegateMgr = (u._delegate as Record<string, unknown> | undefined)?.stsTokenManager as Record<string, unknown> | undefined
+  return (mgr?.refreshToken as string | undefined) ?? (delegateMgr?.refreshToken as string | undefined)
+}
 
 /**
  * AuthProvider wraps the application and provides global state for the
@@ -79,7 +88,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(
-    () => localStorage.getItem(TOKEN_STORAGE_KEY)
+    () => sessionStorage.getItem(TOKEN_STORAGE_KEY)
   );
   const [loading, setLoading] = useState(true);
   const [isLocalUser, setIsLocalUser] = useState(false);
@@ -94,18 +103,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     reject: (err: Error) => void;
   }[] | null>(null);
 
-  /** Persist a new access token (and its expiry) to both React state and localStorage */
+  /** Persist a new access token (and its expiry) to both React state and sessionStorage */
   const storeToken = useCallback((token: string, expiresInSeconds = 3600) => {
     const expiryTs = Date.now() + expiresInSeconds * 1000 - 60_000; // 60 s safety buffer
-    localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTs));
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+    sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTs));
     setGoogleAccessToken(token);
   }, []);
 
   /** Returns true if the stored token is still valid */
   const isTokenValid = useCallback((): boolean => {
-    const token = localStorage.getItem(TOKEN_STORAGE_KEY);
-    const expiry = Number(localStorage.getItem(TOKEN_EXPIRY_KEY) ?? 0);
+    const token = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    const expiry = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY) ?? 0);
     return !!token && Date.now() < expiry;
   }, []);
 
@@ -256,7 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Return a valid token, refreshing silently if it has expired */
   const getValidToken = useCallback(async (): Promise<string | null> => {
     if (isTokenValid()) {
-      return localStorage.getItem(TOKEN_STORAGE_KEY);
+      return sessionStorage.getItem(TOKEN_STORAGE_KEY);
     }
     try {
       return await refreshGoogleToken();
@@ -296,7 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const apiKey = appConfig?.firebaseConfig?.apiKey;
             if (projectId) {
               // stsTokenManager is internal Firebase SDK — access refresh token for main process
-              const refreshToken = (user as any).stsTokenManager?.refreshToken ?? (user as any)._delegate?.stsTokenManager?.refreshToken;
+              const refreshToken = getFirebaseRefreshToken(user);
               await window.electronAPI.config.setSyncConfig({
                 firestoreToken,
                 driveToken: token,
@@ -321,8 +330,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!auth) return;
     try {
       await firebaseSignOut(auth);
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-      localStorage.removeItem(TOKEN_EXPIRY_KEY);
+      sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+      sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
       setGoogleAccessToken(null);
       // Clear sync config in Electron main process
       if (isElectron() && window.electronAPI?.config) {
@@ -343,9 +352,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     registerTokenRefresher(refreshGoogleToken);
   }, [refreshGoogleToken]);
 
-  // Keep React state in sync with localStorage token (set on load above)
+  // Keep React state in sync with sessionStorage token (set on load above)
   useEffect(() => {
-    const storedToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+    const storedToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
     if (storedToken && storedToken !== googleAccessToken) {
       setGoogleAccessToken(storedToken);
     }
@@ -360,10 +369,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signInWithGoogle,
     signOut,
     refreshGoogleToken,
+    _getValidToken: getValidToken,
   };
-
-  // Expose getValidToken on context for use by googleApiClient
-  (value as any)._getValidToken = getValidToken;
 
   return (
     <AuthContext.Provider value={value}>

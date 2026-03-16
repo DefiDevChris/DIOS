@@ -9,6 +9,26 @@ import { Mail, Search, MessageSquare, Plus, X, Loader2, Send, Paperclip, Downloa
 import { format, isToday, isYesterday } from 'date-fns';
 import Swal from 'sweetalert2';
 
+/** Encode a string to base64, handling Unicode correctly (replaces deprecated unescape/escape hack) */
+function textToBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/** Decode a base64 string to a UTF-8 string (replaces deprecated escape/unescape hack) */
+function base64ToText(base64: string): string {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 // Type definitions for useDatabase
 interface Operation {
   id: string;
@@ -201,7 +221,7 @@ export default function Email() {
         // Multipart/mixed email with attachments
         const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-        const bodyBase64 = btoa(unescape(encodeURIComponent(composeBody)));
+        const bodyBase64 = textToBase64(composeBody);
 
         const attachmentParts = await Promise.all(
           composeAttachments.map(async (file) => {
@@ -234,7 +254,7 @@ export default function Email() {
       }
 
       // Base64url encode the full RFC 2822 message
-      const encodedEmail = btoa(unescape(encodeURIComponent(rawEmail)))
+      const encodedEmail = textToBase64(rawEmail)
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/, '');
@@ -349,7 +369,7 @@ export default function Email() {
     // Replace base64url characters
     base64 = base64.replace(/-/g, '+').replace(/_/g, '/');
     try {
-      return decodeURIComponent(escape(atob(base64)));
+      return base64ToText(base64);
     } catch (e) {
       return 'Message body decoding error.';
     }

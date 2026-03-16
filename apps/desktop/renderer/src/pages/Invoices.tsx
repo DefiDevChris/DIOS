@@ -14,37 +14,6 @@ import { useSheetsSync } from '../hooks/useSheetsSync';
 import InvoiceEmailModal from '../components/InvoiceEmailModal';
 import type { Invoice, Inspection, Agency, Operation, Expense } from '@dios/shared/types';
 
-interface InvoiceRecord {
-  id: string;
-  inspectionId: string;
-  operationId: string;
-  operationName: string;
-  agencyId: string;
-  agencyName: string;
-  date: string;
-  inspectionDate: string;
-  totalAmount: number;
-  pdfDriveId?: string;
-  status: 'Not Complete' | 'Sent' | 'Paid';
-  sentDate?: string;
-  paidDate?: string;
-}
-
-// Extended types with local fields
-type ExtendedInspection = Inspection & {
-  linkedExpenses?: string[];
-  lineItems?: string;
-  invoiceNotes?: string;
-};
-
-type ExtendedAgency = Agency & {
-  billingAddress?: string;
-};
-
-type ExtendedExpense = Expense & {
-  amount: number;
-};
-
 export default function Invoices() {
   const { user, googleAccessToken } = useAuth();
   const { syncInspection } = useSheetsSync();
@@ -52,12 +21,12 @@ export default function Invoices() {
 
   // Database hooks
   const { findAll: findAllInvoices, save: saveInvoice } = useDatabase<Invoice>({ table: 'invoices' });
-  const { findById: findInspectionById } = useDatabase<ExtendedInspection>({ table: 'inspections' });
-  const { findById: findAgencyById } = useDatabase<ExtendedAgency>({ table: 'agencies' });
+  const { findById: findInspectionById } = useDatabase<Inspection>({ table: 'inspections' });
+  const { findById: findAgencyById } = useDatabase<Agency>({ table: 'agencies' });
   const { findById: findOperationById } = useDatabase<Operation>({ table: 'operations' });
-  const { findAll: findAllExpenses } = useDatabase<ExtendedExpense>({ table: 'expenses' });
+  const { findAll: findAllExpenses } = useDatabase<Expense>({ table: 'expenses' });
 
-  const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'All' | 'Not Complete' | 'Sent' | 'Paid'>('All');
   const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
@@ -114,12 +83,7 @@ export default function Invoices() {
     const fetchInvoices = async () => {
       try {
         const data = await findAllInvoices();
-        const invoiceData = data.map(doc => ({
-          id: doc.id,
-          ...doc
-        })) as InvoiceRecord[];
-        
-        setInvoices(invoiceData);
+        setInvoices(data);
       } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'invoices');
       } finally {
@@ -135,7 +99,7 @@ export default function Invoices() {
     try {
       const invoice = invoices.find(i => i.id === invoiceId);
       if (!invoice) return;
-      
+
       const updatedInvoice: Invoice = {
         id: invoiceId,
         inspectionId: invoice.inspectionId,
@@ -152,31 +116,30 @@ export default function Invoices() {
         updatedAt: new Date().toISOString(),
         syncStatus: 'pending',
       };
-      
+
       await saveInvoice(updatedInvoice);
-      
+
       // Refresh invoices list
       const updatedInvoices = await findAllInvoices();
-      setInvoices(updatedInvoices.map(doc => ({ id: doc.id, ...doc })) as InvoiceRecord[]);
+      setInvoices(updatedInvoices);
       syncInspection(invoice.inspectionId).catch(() => {});
     } catch (error) {
       logger.error('Error updating invoice status', error);
     }
   };
 
-  const handleDownloadPdf = async (invoice: InvoiceRecord) => {
+  const handleDownloadPdf = async (invoice: Invoice) => {
     if (!user) return;
     setGeneratingPdf(invoice.id);
 
     try {
       // 1. Fetch inspection data
-      const inspectionData = await findInspectionById(invoice.inspectionId) || {};
+      const inspectionData = await findInspectionById(invoice.inspectionId);
 
       // 2. Fetch agency data
-      let agencyData: Record<string, any> = {};
+      let agencyData: Agency | null = null;
       if (invoice.agencyId) {
-        const agency = await findAgencyById(invoice.agencyId);
-        if (agency) agencyData = agency as Record<string, any>;
+        agencyData = await findAgencyById(invoice.agencyId);
       }
 
       // 3. Fetch operation address
@@ -188,10 +151,10 @@ export default function Invoices() {
 
       // 4. Sum any linked expenses for meals totals
       let linkedMeals = 0;
-      const linkedExpenses = (inspectionData as any).linkedExpenses;
+      const linkedExpenses = inspectionData?.linkedExpenses;
       if (linkedExpenses && linkedExpenses.length > 0) {
         const allExpenses = await findAllExpenses();
-        const expenseIds = linkedExpenses.slice(0, 10);
+        const expenseIds = (typeof linkedExpenses === 'string' ? [linkedExpenses] : linkedExpenses).slice(0, 10);
         expenseIds.forEach((expId: string) => {
           const exp = allExpenses.find(e => e.id === expId);
           if (exp) linkedMeals += exp.amount || 0;
@@ -202,7 +165,7 @@ export default function Invoices() {
       let lineItems = [];
       let totalAmount = invoice.totalAmount;
 
-      const inspectionLineItems = (inspectionData as any).lineItems;
+      const inspectionLineItems = inspectionData?.lineItems;
       if (inspectionLineItems) {
         try {
           lineItems = JSON.parse(inspectionLineItems);
@@ -213,7 +176,7 @@ export default function Invoices() {
 
       if (lineItems.length === 0) {
         // Fallback: build simple line items from legacy data
-        const baseAmount = agencyData.flatRateAmount || 0;
+        const baseAmount = agencyData?.flatRateAmount || 0;
         if (baseAmount > 0) {
           lineItems.push({ name: 'Inspection Fee', amount: baseAmount, details: '' });
         }
@@ -230,7 +193,7 @@ export default function Invoices() {
       }
 
       const invoiceDataForPdf: InvoiceData = {
-        invoiceNumber: (invoice as any).invoiceNumber || `INV-${invoice.id.slice(0, 6).toUpperCase()}`,
+        invoiceNumber: invoice.invoiceNumber || `INV-${invoice.id.slice(0, 6).toUpperCase()}`,
         date: invoice.date ? format(new Date(invoice.date), 'MMM d, yyyy') : format(new Date(), 'MMM d, yyyy'),
         businessName: (bp.businessName as string) ?? '',
         businessAddress: (bp.businessAddress as string) ?? '',
@@ -240,10 +203,10 @@ export default function Invoices() {
         operationName: invoice.operationName,
         operationAddress,
         agencyName: invoice.agencyName,
-        agencyAddress: agencyData.billingAddress || '',
+        agencyAddress: agencyData?.billingAddress || '',
         lineItems,
         totalAmount,
-        notes: (inspectionData as any).invoiceNotes || '',
+        notes: inspectionData?.invoiceNotes || '',
       };
 
       const pdfBlob = generateInvoicePdf(invoiceDataForPdf);
@@ -266,7 +229,7 @@ export default function Invoices() {
     }
   };
 
-  const handleEmailInvoice = async (invoice: InvoiceRecord) => {
+  const handleEmailInvoice = async (invoice: Invoice) => {
     if (!user) return;
     setGeneratingPdf(invoice.id);
     try {
@@ -275,22 +238,22 @@ export default function Invoices() {
       const operationData = invoice.operationId ? await findOperationById(invoice.operationId) : null;
 
       let linkedMeals = 0;
-      const linkedExpenses = (inspectionData as any)?.linkedExpenses;
-      if (linkedExpenses?.length > 0) {
+      const linkedExpenses = inspectionData?.linkedExpenses;
+      if (linkedExpenses && linkedExpenses.length > 0) {
         const allExpenses = await findAllExpenses();
-        linkedExpenses.slice(0, 10).forEach((expId: string) => {
+        (typeof linkedExpenses === 'string' ? [linkedExpenses] : linkedExpenses).slice(0, 10).forEach((expId: string) => {
           const exp = allExpenses.find(e => e.id === expId);
           if (exp) linkedMeals += exp.amount || 0;
         });
       }
 
       let lineItems = [];
-      const inspectionLineItems = (inspectionData as any)?.lineItems;
+      const inspectionLineItems = inspectionData?.lineItems;
       if (inspectionLineItems) {
         try { lineItems = JSON.parse(inspectionLineItems); } catch { lineItems = []; }
       }
       if (lineItems.length === 0 && agencyData) {
-        const baseAmount = (agencyData as any).flatRateAmount || 0;
+        const baseAmount = agencyData.flatRateAmount || 0;
         if (baseAmount > 0) lineItems.push({ name: 'Inspection Fee', amount: baseAmount, details: '' });
       }
 
@@ -303,7 +266,7 @@ export default function Invoices() {
         // system_settings may not exist yet
       }
 
-      const invoiceNumber = (invoice as any).invoiceNumber || `INV-${invoice.id.slice(0, 6).toUpperCase()}`;
+      const invoiceNumber = invoice.invoiceNumber || `INV-${invoice.id.slice(0, 6).toUpperCase()}`;
       const pdfBlob = generateInvoicePdf({
         invoiceNumber,
         date: invoice.date ? format(new Date(invoice.date), 'MMM d, yyyy') : format(new Date(), 'MMM d, yyyy'),
@@ -315,16 +278,16 @@ export default function Invoices() {
         operationName: invoice.operationName,
         operationAddress: operationData?.address || '',
         agencyName: invoice.agencyName,
-        agencyAddress: (agencyData as any)?.billingAddress || '',
+        agencyAddress: agencyData?.billingAddress || '',
         lineItems,
         totalAmount: invoice.totalAmount,
-        notes: (inspectionData as any)?.invoiceNotes || '',
+        notes: inspectionData?.invoiceNotes || '',
       });
 
       setEmailModal({
         isOpen: true,
-        agency: agencyData as Agency | null,
-        operation: operationData as Operation | null,
+        agency: agencyData,
+        operation: operationData,
         invoiceNumber,
         totalAmount: invoice.totalAmount,
         inspectionDate: invoice.inspectionDate || invoice.date,
@@ -341,20 +304,21 @@ export default function Invoices() {
   const handleEmailSent = async () => {
     if (!emailModal) return;
     const invoice = invoices.find(i =>
-      ((i as any).invoiceNumber && (i as any).invoiceNumber === emailModal.invoiceNumber) ||
+      (i.invoiceNumber && i.invoiceNumber === emailModal.invoiceNumber) ||
       `INV-${i.id.slice(0, 6).toUpperCase()}` === emailModal.invoiceNumber
     );
     if (invoice && invoice.status === 'Not Complete') {
       try {
-        await saveInvoice({
+        const updatedInvoice: Invoice = {
           ...invoice,
           status: 'Sent',
           sentDate: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           syncStatus: 'pending',
-        } as any);
+        };
+        await saveInvoice(updatedInvoice);
         const updated = await findAllInvoices();
-        setInvoices(updated.map(doc => ({ id: doc.id, ...doc })) as InvoiceRecord[]);
+        setInvoices(updated);
         syncInspection(invoice.inspectionId).catch(() => {});
       } catch (error) {
         logger.error('Error updating invoice status after email:', error);
@@ -363,20 +327,19 @@ export default function Invoices() {
     setEmailModal(null);
   };
 
-  const handleSaveToDrive = async (invoice: InvoiceRecord) => {
+  const handleSaveToDrive = async (invoice: Invoice) => {
     if (!user) return;
-    const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+    const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
     if (!token) {
       Swal.fire({ text: 'Sign in with Google to save to Drive.', icon: 'info' });
       return;
     }
     setSavingToDrive(invoice.id);
     try {
-      const inspectionData = await findInspectionById(invoice.inspectionId) || {};
-      let agencyData: Record<string, any> = {};
+      const inspectionData = await findInspectionById(invoice.inspectionId);
+      let agencyData: Agency | null = null;
       if (invoice.agencyId) {
-        const agency = await findAgencyById(invoice.agencyId);
-        if (agency) agencyData = agency as Record<string, any>;
+        agencyData = await findAgencyById(invoice.agencyId);
       }
       let operationAddress = '';
       if (invoice.operationId) {
@@ -385,12 +348,12 @@ export default function Invoices() {
       }
 
       let lineItems: any[] = [];
-      const inspectionLineItems = (inspectionData as any).lineItems;
+      const inspectionLineItems = inspectionData?.lineItems;
       if (inspectionLineItems) {
         try { lineItems = JSON.parse(inspectionLineItems); } catch { lineItems = []; }
       }
       if (lineItems.length === 0) {
-        const baseAmount = agencyData.flatRateAmount || 0;
+        const baseAmount = agencyData?.flatRateAmount || 0;
         if (baseAmount > 0) lineItems.push({ name: 'Inspection Fee', amount: baseAmount, details: '' });
       }
 
@@ -409,24 +372,25 @@ export default function Invoices() {
         operationName: invoice.operationName,
         operationAddress,
         agencyName: invoice.agencyName,
-        agencyAddress: agencyData.billingAddress || '',
+        agencyAddress: agencyData?.billingAddress || '',
         lineItems,
         totalAmount: invoice.totalAmount,
-        notes: (inspectionData as any).invoiceNotes || '',
+        notes: inspectionData?.invoiceNotes || '',
       });
 
       const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
       const result = await uploadToDrive(token, user.uid, file, invoice.agencyName, invoice.operationName, String(year));
 
-      await saveInvoice({
+      const updatedInvoice: Invoice = {
         ...invoice,
         pdfDriveId: result.id,
         updatedAt: new Date().toISOString(),
         syncStatus: 'pending',
-      } as any);
+      };
+      await saveInvoice(updatedInvoice);
 
       const updated = await findAllInvoices();
-      setInvoices(updated.map(doc => ({ id: doc.id, ...doc })) as InvoiceRecord[]);
+      setInvoices(updated);
 
       Swal.fire({
         icon: 'success',

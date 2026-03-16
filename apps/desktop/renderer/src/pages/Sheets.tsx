@@ -78,7 +78,7 @@ export default function Sheets() {
   const { findAll: findAllInvoices } = useDatabase<Invoice>({ table: 'invoices' });
   const { findAll: findAllExpenses } = useDatabase<Expense>({ table: 'expenses' });
 
-  const token = googleAccessToken || localStorage.getItem('googleAccessToken');
+  const token = googleAccessToken || sessionStorage.getItem('googleAccessToken');
   // The Google Picker requires a browser API key — use the Firebase apiKey which is
   // a browser key for the same GCP project (not the Maps key).
   const apiKey = configStore.getConfig()?.firebaseConfig?.apiKey ?? '';
