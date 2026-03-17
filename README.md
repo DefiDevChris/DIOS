@@ -50,9 +50,82 @@ Next, you'll fill in your business profile:
 2. **Email Signature** — An HTML signature auto-generated from your business info. You can customize it.
 3. **First Agency** — Add your first certifying agency with billing rates and contact info. You can add more agencies later in Settings.
 
-### Step 3 — Start Working
+### Step 3 — Choose Your Setup
 
-You're ready to go. Add your operators (farms, handlers, processors), schedule inspections, and manage invoices. Everything runs locally on your computer — no internet connection required.
+DIOS Studio works in three tiers. Start with Local Only and add integrations whenever you're ready — there's nothing to reconfigure.
+
+---
+
+## Three Ways to Use DIOS Studio
+
+<table>
+<tr>
+<th width="200">Setup</th>
+<th width="120">Cost</th>
+<th>What You Get</th>
+<th>What You Need</th>
+</tr>
+<tr>
+<td><strong>Local Only</strong></td>
+<td>Free</td>
+<td>
+Full inspection management, invoicing, expenses, receipt scanning, route planning, reports, and tax summaries. Everything runs on your computer with no internet required.
+</td>
+<td>
+Just download and install. Nothing else.
+</td>
+</tr>
+<tr>
+<td><strong>Local + Google</strong></td>
+<td>Free</td>
+<td>
+Everything in Local, plus:<br>
+• <strong>Google Sheets</strong> — auto-synced master spreadsheet with all your data<br>
+• <strong>Google Drive</strong> — file browser with organized folders per operator<br>
+• <strong>Gmail</strong> — send invoices with PDF attachments and agency templates<br>
+• <strong>Google Calendar</strong> — sync inspection dates to your calendar
+</td>
+<td>
+A Google account. Click <strong>Sign in with Google</strong> on the login screen. Your data stays in your own Google account.
+</td>
+</tr>
+<tr>
+<td><strong>Local + Google + Firebase</strong></td>
+<td>Free</td>
+<td>
+Everything above, plus:<br>
+• <strong>Real-time cloud backup</strong> — your data is mirrored to the cloud automatically<br>
+• <strong>Multi-device sync</strong> — use DIOS Studio on multiple computers and stay in sync<br>
+• <strong>Mobile companion</strong> — upload field photos from your phone that appear on your desktop
+</td>
+<td>
+A free Firebase project. Go to <strong>Settings → Data & Integrations</strong> and follow the step-by-step guide (takes about 5 minutes).
+</td>
+</tr>
+</table>
+
+> **You can start with Local Only and add Google or Firebase at any time.** Features that require a connection are simply hidden until you sign in or configure them. Nothing breaks, nothing changes — you just unlock more.
+
+### Feature Availability by Setup
+
+| Feature | Local Only | + Google | + Google + Firebase |
+|---------|:---:|:---:|:---:|
+| Operators, agencies, inspections | ✓ | ✓ | ✓ |
+| 6-step inspection workflow | ✓ | ✓ | ✓ |
+| Invoice generation & PDF download | ✓ | ✓ | ✓ |
+| Per-agency billing rates & templates | ✓ | ✓ | ✓ |
+| Receipt scanning (OCR) | ✓ | ✓ | ✓ |
+| Route planning & distance calculation | ✓ | ✓ | ✓ |
+| Expense tracking & tax reports | ✓ | ✓ | ✓ |
+| Business profile & settings | ✓ | ✓ | ✓ |
+| Local document storage | ✓ | ✓ | ✓ |
+| Google Sheets auto-sync | | ✓ | ✓ |
+| Google Drive file browser | | ✓ | ✓ |
+| Gmail invoice emailing | | ✓ | ✓ |
+| Google Calendar sync | | ✓ | ✓ |
+| Cloud backup | | | ✓ |
+| Multi-device sync | | | ✓ |
+| Mobile companion uploads | | | ✓ |
 
 ---
 
@@ -104,33 +177,6 @@ Each step has a modal where you log hours, complete checklists, and enter notes.
 - Upload and organize documents per operator
 - Store locally on your computer
 - Back up to Google Drive automatically when connected
-
----
-
-## Google Integration
-
-Signing in with Google is **optional** but unlocks powerful features. Click **Sign in with Google** on the login screen.
-
-| Feature | What You Get |
-|---------|-------------|
-| **Google Sheets** | A master spreadsheet is auto-created in your Drive with all inspections, operators, and expenses — updated automatically |
-| **Google Drive** | Browse and upload files organized by agency, operator, and year |
-| **Gmail** | Send invoices directly from the app with PDF attachments and agency-specific email templates |
-| **Google Calendar** | Sync inspection dates to your calendar |
-
-> Your data stays in your own Google account. DIOS Studio does not store your data on any external server.
-
----
-
-## Cloud Sync (Optional)
-
-For real-time backup and multi-device access, you can connect a free Firebase project:
-
-1. Go to **Settings → Data & Integrations**
-2. Follow the step-by-step guide to create a Firebase project
-3. Enable Cloud Sync
-
-When Firebase isn't configured, cloud sync features are hidden and the app works fully offline.
 
 ---
 
