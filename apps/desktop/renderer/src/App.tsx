@@ -41,29 +41,41 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       return
     }
 
-    import('@dios/shared/firebase').then(({ db }) => {
-      if (!db) {
+    let settled = false
+
+    // Timeout: if Firestore check hangs (network issue), fall through after 5s
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true
         setShowOnboarding(true)
         setOnboardingChecked(true)
-        return
       }
-      import('firebase/firestore').then(({ doc, getDoc }) => {
-        getDoc(doc(db, `users/${user.uid}/system_settings/config`)).then((snap) => {
-          if (snap.exists() && snap.data().onboardingCompleted === true) {
-            localStorage.setItem('dios_onboarding_completed', 'true')
-          } else {
-            setShowOnboarding(true)
-          }
-          setOnboardingChecked(true)
-        }).catch(() => {
+    }, 5000)
+
+    import('./utils/systemConfig').then(({ getSystemConfig }) => {
+      getSystemConfig(user.uid).then((config) => {
+        if (settled) return
+        settled = true
+        if (config.onboardingCompleted === true) {
+          localStorage.setItem('dios_onboarding_completed', 'true')
+        } else {
           setShowOnboarding(true)
-          setOnboardingChecked(true)
-        })
+        }
+        setOnboardingChecked(true)
+      }).catch(() => {
+        if (settled) return
+        settled = true
+        setShowOnboarding(true)
+        setOnboardingChecked(true)
       })
     }).catch(() => {
+      if (settled) return
+      settled = true
       setShowOnboarding(true)
       setOnboardingChecked(true)
     })
+
+    return () => { clearTimeout(timeout) }
   }, [user])
 
   if (loading) {

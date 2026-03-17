@@ -43,6 +43,7 @@ interface SyncDB extends DBSchema {
 
 export type QueueItem = SyncDB['FileQueue']['value'];
 
+export const DEFAULT_FOLDER_NAME = 'Unassigned Uploads';
 const MAX_RETRIES = 5;
 const BASE_BACKOFF_MS = 2000;
 const POLL_INTERVAL_MS = 30_000; // check queue every 30s when online
@@ -296,8 +297,7 @@ export const processQueue = async (accessToken?: string | null) => {
         now - item.lastAttemptAt > 120_000
     );
     for (const item of stale) {
-      item.status = 'failed';
-      await db.put('FileQueue', item);
+      await db.put('FileQueue', { ...item, status: 'failed' });
     }
 
     if (eligible.length === 0) return;
@@ -306,12 +306,11 @@ export const processQueue = async (accessToken?: string | null) => {
     const masterFolderId = await findOrCreateFolder('DIOS Master Inspections Database', accessToken);
 
     for (const item of eligible) {
-      // Mark as uploading
-      item.status = 'uploading';
-      item.lastAttemptAt = Date.now();
-      await db.put('FileQueue', item);
+      // Mark as uploading (immutable)
+      const uploading = { ...item, status: 'uploading' as const, lastAttemptAt: Date.now() };
+      await db.put('FileQueue', uploading);
 
-      const targetFolderName = item.metadata.folderName || 'Unassigned Uploads';
+      const targetFolderName = item.metadata.folderName || DEFAULT_FOLDER_NAME;
 
       try {
         // Resolve or create: Master / {folderName} / {YYYY}
@@ -351,15 +350,19 @@ export const processQueue = async (accessToken?: string | null) => {
         await db.delete('FileQueue', item.id);
         logger.debug(`[SyncQueue] Uploaded ${item.metadata.fileName} → Drive ID: ${driveFileId}`);
       } catch (error) {
-        // Mark as failed with error details
-        item.status = 'failed';
-        item.retryCount += 1;
-        item.lastError =
-          error instanceof Error ? error.message : String(error);
-        await db.put('FileQueue', item);
+        // Mark as failed with error details (immutable)
+        const nextRetryCount = item.retryCount + 1;
+        const lastError = error instanceof Error ? error.message : String(error);
+        await db.put('FileQueue', {
+          ...item,
+          status: 'failed' as const,
+          retryCount: nextRetryCount,
+          lastError,
+          lastAttemptAt: Date.now(),
+        });
         logger.warn(
-          `[SyncQueue] Failed to upload ${item.metadata.fileName} (attempt ${item.retryCount}/${MAX_RETRIES}):`,
-          item.lastError
+          `[SyncQueue] Failed to upload ${item.metadata.fileName} (attempt ${nextRetryCount}/${MAX_RETRIES}):`,
+          lastError
         );
       }
 

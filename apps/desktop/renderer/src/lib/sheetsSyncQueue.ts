@@ -1,5 +1,6 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { syncInspectionRow } from './sheetsSync';
+import { logger } from '@dios/shared';
 
 // --- Types ---
 
@@ -55,32 +56,37 @@ export const queueSheetWrite = async (
   rowData: string[],
   spreadsheetId: string
 ): Promise<string> => {
-  const db = await initDB();
+  try {
+    const db = await initDB();
 
-  // Coalesce: reuse an existing pending item for the same inspection
-  const allForInspection = await db.getAllFromIndex('queue', 'by-inspectionId', inspectionId);
-  const existing = allForInspection.find((item) => item.status === 'pending');
+    // Coalesce: reuse an existing pending item for the same inspection
+    const allForInspection = await db.getAllFromIndex('queue', 'by-inspectionId', inspectionId);
+    const existing = allForInspection.find((item) => item.status === 'pending');
 
-  if (existing) {
+    if (existing) {
+      await db.put('queue', {
+        ...existing,
+        rowData,
+        spreadsheetId,
+      });
+      return existing.id;
+    }
+
+    const id = crypto.randomUUID();
     await db.put('queue', {
-      ...existing,
+      id,
+      inspectionId,
       rowData,
       spreadsheetId,
+      status: 'pending',
+      retryCount: 0,
+      createdAt: Date.now(),
     });
-    return existing.id;
+    return id;
+  } catch (error) {
+    logger.error(`[SheetQueue] Failed to queue write for inspection "${inspectionId}":`, error);
+    throw error;
   }
-
-  const id = crypto.randomUUID();
-  await db.put('queue', {
-    id,
-    inspectionId,
-    rowData,
-    spreadsheetId,
-    status: 'pending',
-    retryCount: 0,
-    createdAt: Date.now(),
-  });
-  return id;
 };
 
 /**

@@ -227,7 +227,7 @@ export default function InspectionProfile() {
   const calculateInvoiceTotal = () => {
     if (!agency) return 0;
 
-    let total = agency.flatRateBaseAmount;
+    let total = agency.flatRateAmount;
 
     // Additional hours
     if (additionalHoursLog > 0) {

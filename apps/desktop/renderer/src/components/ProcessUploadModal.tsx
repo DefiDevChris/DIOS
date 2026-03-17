@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { logger } from '@dios/shared';
 import { createWorker } from 'tesseract.js';
 import {
@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabase } from '../hooks/useDatabase';
-import { queueFile } from '../lib/syncQueue';
+import { queueFile, DEFAULT_FOLDER_NAME } from '../lib/syncQueue';
 import { useBackgroundSync } from '../contexts/BackgroundSyncContext';
 import { parseOcrText } from './ReceiptScanner';
 import Swal from 'sweetalert2';
@@ -60,6 +60,15 @@ export default function ProcessUploadModal({
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Track active OCR worker so it can be terminated if the component unmounts mid-scan
+  const workerRef = useRef<Awaited<ReturnType<typeof createWorker>> | null>(null);
+  useEffect(() => {
+    return () => {
+      workerRef.current?.terminate().catch(() => {});
+      workerRef.current = null;
+    };
+  }, []);
+
   const isImage = upload.fileType.startsWith('image/');
   const selectedOp = operations.find(o => o.id === selectedOpId);
   const canClose = phase !== 'scanning' && phase !== 'processing' && !saving;
@@ -71,12 +80,11 @@ export default function ProcessUploadModal({
     if (isReceipt) {
       setPhase('scanning');
       setOcrStatus('Initializing OCR…');
-      let worker;
       try {
         const response = await fetch(uploadUrl);
         const blob = await response.blob();
 
-        worker = await createWorker('eng', 1, {
+        const worker = await createWorker('eng', 1, {
           logger: (m: { status: string; progress: number }) => {
             if (m.status === 'recognizing text') {
               setOcrStatus(`Scanning… ${Math.round(m.progress * 100)}%`);
@@ -85,6 +93,7 @@ export default function ProcessUploadModal({
             }
           },
         });
+        workerRef.current = worker;
 
         const { data } = await worker.recognize(blob);
         const parsed = parseOcrText(data.text);
@@ -99,7 +108,8 @@ export default function ProcessUploadModal({
         setOcrStatus('OCR failed – please fill in manually.');
         setPhase('expense-form');
       } finally {
-        if (worker) await worker.terminate();
+        await workerRef.current?.terminate().catch(() => {});
+        workerRef.current = null;
       }
     } else {
       setPhase('processing');
@@ -107,7 +117,7 @@ export default function ProcessUploadModal({
         const response = await fetch(uploadUrl);
         const blob = await response.blob();
         const year = new Date().getFullYear();
-        const folderName = selectedOp?.name ?? 'Unassigned Uploads';
+        const folderName = selectedOp?.name ?? DEFAULT_FOLDER_NAME;
 
         await queueFile(blob, {
           fileName: upload.fileName,

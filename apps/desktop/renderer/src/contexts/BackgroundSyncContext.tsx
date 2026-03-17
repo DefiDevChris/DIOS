@@ -74,7 +74,9 @@ export function BackgroundSyncProvider({ children }: { children: ReactNode }) {
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     if (isElectron() && window.electronAPI?.isOnline) {
       pollTimer = setInterval(() => {
-        window.electronAPI!.isOnline().then(setIsOnline).catch(() => {});
+        window.electronAPI!.isOnline().then(setIsOnline).catch((err: Error) => {
+          logger.warn('[BackgroundSync] Online status check failed:', err);
+        });
       }, 30_000);
     }
 

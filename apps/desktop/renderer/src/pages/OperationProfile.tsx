@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useDatabase } from '../hooks/useDatabase';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@dios/shared/firebase';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
 import type { Agency, Inspection, Operation, OperationDocument, OperationActivity, ChecklistItem } from '@dios/shared';
@@ -176,15 +174,9 @@ export default function OperationProfile() {
 
     const fetchDistance = async () => {
       try {
-        // Load homebase from system_settings
-        if (!db) {
-          logger.error('Firestore db is not initialized; skipping distance calculation');
-          return;
-        }
-        const settingsDoc = await getDocs(collection(db, `users/${user.uid}/system_settings`));
-        const configDoc = settingsDoc.docs.find((d) => d.id === 'config');
-        if (!configDoc) return;
-        const settings = configDoc.data();
+        // Load homebase from system config (works in both Electron and web)
+        const { getSystemConfig } = await import('../utils/systemConfig');
+        const settings = await getSystemConfig(user.uid);
         const homebaseLat = settings.homebaseLat as number | undefined;
         const homebaseLng = settings.homebaseLng as number | undefined;
         if (!homebaseLat || !homebaseLng) return;
@@ -401,7 +393,7 @@ export default function OperationProfile() {
 
   // Step completion
   const handleStepComplete = async (data: { hours: number; checklist: ChecklistItem[] }) => {
-    if (!user || !currentInspection || !activeStep || !db) {
+    if (!user || !currentInspection || !activeStep) {
       Swal.fire({ text: 'Cannot update inspection.', icon: 'warning' });
       return;
     }

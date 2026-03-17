@@ -17,6 +17,10 @@ out/
 *.deb
 *.rpm
 
+# Tool caches
+.firebase/
+.playwright-mcp/
+
 # Workspace
 apps/*/node_modules/
 packages/*/node_modules/

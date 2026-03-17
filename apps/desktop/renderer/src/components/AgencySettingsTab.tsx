@@ -178,9 +178,11 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
         <RateConfigSection
           isFlatRate={form.isFlatRate}
           flatRateAmount={form.flatRateAmount}
+          flatRateBaseAmount={form.flatRateBaseAmount}
           flatRateIncludedHours={form.flatRateIncludedHours}
           flatRateOverageRate={form.flatRateOverageRate}
           hourlyRate={form.hourlyRate}
+          additionalHourlyRate={form.additionalHourlyRate}
           driveTimeHourlyRate={form.driveTimeHourlyRate}
           mileageReimbursed={form.mileageReimbursed}
           mileageRate={form.mileageRate}
@@ -252,9 +254,11 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
                       <RateConfigSection
                         isFlatRate={typeRates.isFlatRate}
                         flatRateAmount={typeRates.flatRateAmount}
+                        flatRateBaseAmount={typeRates.flatRateBaseAmount}
                         flatRateIncludedHours={typeRates.flatRateIncludedHours}
                         flatRateOverageRate={typeRates.flatRateOverageRate}
                         hourlyRate={typeRates.hourlyRate}
+                        additionalHourlyRate={typeRates.additionalHourlyRate}
                         driveTimeHourlyRate={typeRates.driveTimeHourlyRate}
                         mileageReimbursed={typeRates.mileageReimbursed}
                         mileageRate={typeRates.mileageRate}

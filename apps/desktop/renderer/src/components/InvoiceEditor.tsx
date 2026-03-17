@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import type { Agency, Inspection, Operation, InvoiceLineItem } from '@dios/shared';
 import { calculateLiveInvoiceLineItems } from '../utils/invoiceCalculator';
 import { generateInvoicePdf } from '../lib/pdfGenerator';
@@ -38,10 +38,12 @@ export default function InvoiceEditor({
   onSave,
   onEmail,
 }: InvoiceEditorProps) {
-  const invoiceNumber = useMemo(
-    () => invoiceNumberProp ?? getNextInvoiceNumber(new Date(inspection.date).getFullYear(), existingInvoiceCount),
-    [invoiceNumberProp, existingInvoiceCount, inspection.date]
+  // Capture the fallback invoice number once on first render to prevent
+  // duplicate numbers when multiple invoices are created in the same session.
+  const fallbackRef = useRef(
+    getNextInvoiceNumber(new Date(inspection.date).getFullYear(), existingInvoiceCount)
   );
+  const invoiceNumber = invoiceNumberProp ?? fallbackRef.current;
 
   const calculated = useMemo(
     // 0 = no additional expenses to include in line items

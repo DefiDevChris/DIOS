@@ -14,6 +14,25 @@ import { useSheetsSync } from '../hooks/useSheetsSync';
 import InvoiceEmailModal from '../components/InvoiceEmailModal';
 import type { Invoice, Inspection, Agency, Operation, Expense } from '@dios/shared/types';
 
+/** Normalize linkedExpenses which can be a JSON string, a string[], or a single string */
+function normalizeLinkedExpenses(raw: string[] | string | undefined): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  // Could be a JSON-encoded array
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed as string[];
+  } catch {
+    // not JSON — treat as a single expense ID
+  }
+  return [raw];
+}
+
+/** Sanitize a string for use as a filename */
+function sanitizeFileName(name: string): string {
+  return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/\s+/g, '_');
+}
+
 export default function Invoices() {
   const { user, googleAccessToken } = useAuth();
   const { syncInspection } = useSheetsSync();
@@ -101,16 +120,7 @@ export default function Invoices() {
       if (!invoice) return;
 
       const updatedInvoice: Invoice = {
-        id: invoiceId,
-        inspectionId: invoice.inspectionId,
-        operationId: invoice.operationId,
-        operationName: invoice.operationName,
-        agencyId: invoice.agencyId,
-        agencyName: invoice.agencyName,
-        date: invoice.date,
-        inspectionDate: invoice.inspectionDate,
-        totalAmount: invoice.totalAmount,
-        pdfDriveId: invoice.pdfDriveId,
+        ...invoice,
         status: 'Paid',
         paidDate: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -151,11 +161,10 @@ export default function Invoices() {
 
       // 4. Sum any linked expenses for meals totals
       let linkedMeals = 0;
-      const linkedExpenses = inspectionData?.linkedExpenses;
-      if (linkedExpenses && linkedExpenses.length > 0) {
+      const expenseIds = normalizeLinkedExpenses(inspectionData?.linkedExpenses);
+      if (expenseIds.length > 0) {
         const allExpenses = await findAllExpenses();
-        const expenseIds = (typeof linkedExpenses === 'string' ? [linkedExpenses] : linkedExpenses).slice(0, 10);
-        expenseIds.forEach((expId: string) => {
+        expenseIds.slice(0, 10).forEach((expId) => {
           const exp = allExpenses.find(e => e.id === expId);
           if (exp) linkedMeals += exp.amount || 0;
         });
@@ -210,7 +219,7 @@ export default function Invoices() {
       };
 
       const pdfBlob = generateInvoicePdf(invoiceDataForPdf);
-      const fileName = `Invoice_${invoiceDataForPdf.invoiceNumber}_${invoice.operationName.replace(/\s+/g, '_')}.pdf`;
+      const fileName = `Invoice_${invoiceDataForPdf.invoiceNumber}_${sanitizeFileName(invoice.operationName)}.pdf`;
 
       // 6. Download locally
       const url = URL.createObjectURL(pdfBlob);
@@ -238,10 +247,10 @@ export default function Invoices() {
       const operationData = invoice.operationId ? await findOperationById(invoice.operationId) : null;
 
       let linkedMeals = 0;
-      const linkedExpenses = inspectionData?.linkedExpenses;
-      if (linkedExpenses && linkedExpenses.length > 0) {
+      const emailExpenseIds = normalizeLinkedExpenses(inspectionData?.linkedExpenses);
+      if (emailExpenseIds.length > 0) {
         const allExpenses = await findAllExpenses();
-        (typeof linkedExpenses === 'string' ? [linkedExpenses] : linkedExpenses).slice(0, 10).forEach((expId: string) => {
+        emailExpenseIds.slice(0, 10).forEach((expId) => {
           const exp = allExpenses.find(e => e.id === expId);
           if (exp) linkedMeals += exp.amount || 0;
         });
@@ -359,7 +368,7 @@ export default function Invoices() {
 
       const invoiceNumber = `INV-${invoice.id.slice(0, 6).toUpperCase()}`;
       const year = invoice.date ? new Date(invoice.date).getFullYear() : new Date().getFullYear();
-      const fileName = `Invoice_${invoiceNumber}_${invoice.operationName.replace(/\s+/g, '_')}.pdf`;
+      const fileName = `Invoice_${invoiceNumber}_${sanitizeFileName(invoice.operationName)}.pdf`;
 
       const pdfBlob = generateInvoicePdf({
         invoiceNumber,

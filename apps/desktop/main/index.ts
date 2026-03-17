@@ -401,13 +401,14 @@ app.whenReady().then(async () => {
   if (process.env.NODE_ENV !== 'development') {
     import('electron-updater').then((mod) => {
       const updater = mod.autoUpdater as any
+      updater.autoDownload = false
       updater.on('update-available', (info: { version: string }) => {
         mainWindow?.webContents.send('updater:status', { status: 'available', version: info.version })
       })
       updater.on('update-downloaded', (info: { version: string }) => {
         mainWindow?.webContents.send('updater:status', { status: 'downloaded', version: info.version })
       })
-      updater.checkForUpdatesAndNotify().catch((err: Error) => {
+      updater.checkForUpdates().catch((err: Error) => {
         logger.warn('Auto-updater check failed:', err)
       })
     }).catch(() => { /* electron-updater not installed */ })

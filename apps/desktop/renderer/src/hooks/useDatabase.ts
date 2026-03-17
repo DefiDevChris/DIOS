@@ -5,6 +5,8 @@ import { logger } from '@dios/shared'
 import { useAuth } from '../contexts/AuthContext'
 import { isElectron } from '../utils/isElectron'
 
+// All top-level boolean columns stored as INTEGER 0/1 in SQLite.
+// Keep in sync with boolean fields in packages/shared/src/types.ts.
 const BOOLEAN_FIELDS = new Set([
   'isBundled', 'reportCompleted',
   'isFlatRate', 'mileageReimbursed', 'perTypeRatesEnabled',
@@ -45,11 +47,16 @@ export function useDatabase<T extends { id: string }>({ table, parentPath }: Use
       }
     }
     if (!firestoreDb || !userId) return []
-    const colRef = parentPath
-      ? collection(firestoreDb, `users/${userId}/${parentPath}/${table}`)
-      : collection(firestoreDb, `users/${userId}/${table}`)
-    const snapshot = await getDocs(colRef)
-    return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as T)
+    try {
+      const colRef = parentPath
+        ? collection(firestoreDb, `users/${userId}/${parentPath}/${table}`)
+        : collection(firestoreDb, `users/${userId}/${table}`)
+      const snapshot = await getDocs(colRef)
+      return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as T)
+    } catch (error) {
+      logger.error(`Firestore findAll failed for table "${table}":`, error)
+      throw error
+    }
   }, [table, userId])
 
   const findById = useCallback(async (id: string): Promise<T | null> => {
@@ -67,11 +74,16 @@ export function useDatabase<T extends { id: string }>({ table, parentPath }: Use
       }
     }
     if (!firestoreDb || !userId) return null
-    const docRef = parentPath
-      ? doc(firestoreDb, `users/${userId}/${parentPath}/${table}`, id)
-      : doc(firestoreDb, `users/${userId}/${table}`, id)
-    const snapshot = await getDoc(docRef)
-    return snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as T) : null
+    try {
+      const docRef = parentPath
+        ? doc(firestoreDb, `users/${userId}/${parentPath}/${table}`, id)
+        : doc(firestoreDb, `users/${userId}/${table}`, id)
+      const snapshot = await getDoc(docRef)
+      return snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as T) : null
+    } catch (error) {
+      logger.error(`Firestore findById failed for table "${table}", id "${id}":`, error)
+      throw error
+    }
   }, [table, userId])
 
   const save = useCallback(async (record: T): Promise<void> => {
@@ -89,8 +101,13 @@ export function useDatabase<T extends { id: string }>({ table, parentPath }: Use
       }
     }
     if (!firestoreDb || !userId) return
-    const docRef = doc(firestoreDb, `users/${userId}/${table}`, record.id)
-    await setDoc(docRef, record)
+    try {
+      const docRef = doc(firestoreDb, `users/${userId}/${table}`, record.id)
+      await setDoc(docRef, record)
+    } catch (error) {
+      logger.error(`Firestore save failed for table "${table}":`, error)
+      throw error
+    }
   }, [table, userId])
 
   const remove = useCallback(async (id: string): Promise<void> => {
@@ -108,10 +125,15 @@ export function useDatabase<T extends { id: string }>({ table, parentPath }: Use
       }
     }
     if (!firestoreDb || !userId) return
-    const docRef = parentPath
-      ? doc(firestoreDb, `users/${userId}/${parentPath}/${table}`, id)
-      : doc(firestoreDb, `users/${userId}/${table}`, id)
-    await deleteDoc(docRef)
+    try {
+      const docRef = parentPath
+        ? doc(firestoreDb, `users/${userId}/${parentPath}/${table}`, id)
+        : doc(firestoreDb, `users/${userId}/${table}`, id)
+      await deleteDoc(docRef)
+    } catch (error) {
+      logger.error(`Firestore remove failed for table "${table}", id "${id}":`, error)
+      throw error
+    }
   }, [table, userId])
 
   return { findAll, findById, save, remove }

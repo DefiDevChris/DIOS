@@ -32,7 +32,7 @@ interface LocalOperation {
 }
 
 export default function Operations() {
-  const { user, googleAccessToken, isLocalUser } = useAuth();
+  const { user, googleAccessToken } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -80,7 +80,7 @@ export default function Operations() {
   });
 
   useEffect(() => {
-    if (!user || isLocalUser) {
+    if (!user) {
       setLoading(false);
       return;
     }
@@ -89,9 +89,9 @@ export default function Operations() {
       try {
         // Fetch Agencies for the dropdown
         const agenciesData = await findAllAgencies();
-        setAgencies(agenciesData.map(a => ({ 
+        setAgencies(agenciesData.map(a => ({
           ...a,
-          operationTypes: a.operationTypes || '["crop","handler"]' 
+          operationTypes: a.operationTypes || '["crop","handler"]'
         })));
 
         // Fetch Operations
@@ -117,7 +117,7 @@ export default function Operations() {
     };
 
     fetchData();
-  }, [user, isLocalUser, findAllOperations, findAllAgencies]);
+  }, [user, findAllOperations, findAllAgencies]);
 
   // Auto-open "Add Operation" modal when navigated here with ?new=1
   useEffect(() => {
@@ -173,8 +173,8 @@ export default function Operations() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || isLocalUser) {
-      Swal.fire({ text: 'Cannot save operation in offline mode.', icon: 'warning' });
+    if (!user) {
+      Swal.fire({ text: 'Please sign in to save operations.', icon: 'warning' });
       return;
     }
 
@@ -240,8 +240,8 @@ export default function Operations() {
   };
 
   const confirmDelete = async () => {
-    if (!user || !opToDelete || isLocalUser) {
-      Swal.fire({ text: 'Cannot delete operation in offline mode.', icon: 'warning' });
+    if (!user || !opToDelete) {
+      Swal.fire({ text: 'Please sign in to delete operations.', icon: 'warning' });
       return;
     }
     
@@ -274,8 +274,8 @@ export default function Operations() {
   };
 
   const handleConfirmImport = async () => {
-    if (!user || !importAgencyId || isLocalUser) {
-      Swal.fire({ text: 'Cannot import operations in offline mode.', icon: 'warning' });
+    if (!user || !importAgencyId) {
+      Swal.fire({ text: 'Please sign in to import operations.', icon: 'warning' });
       return;
     }
 
