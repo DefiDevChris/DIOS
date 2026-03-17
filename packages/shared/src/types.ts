@@ -204,13 +204,16 @@ export interface ChecklistItem {
 export interface RateConfig {
   isFlatRate: boolean
   flatRateAmount: number
+  flatRateBaseAmount?: number
   flatRateIncludedHours: number
   flatRateOverageRate: number
   hourlyRate: number
+  additionalHourlyRate?: number
   driveTimeHourlyRate: number
   mileageReimbursed: boolean
   mileageRate: number
   perDiemRate: number
+  defaultLineItems?: DefaultLineItem[]
 }
 
 export interface DefaultLineItem {

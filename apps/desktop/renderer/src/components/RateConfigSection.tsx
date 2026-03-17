@@ -4,9 +4,11 @@ import type { DefaultLineItem } from '@dios/shared';
 interface RateConfigSectionProps {
   isFlatRate: boolean;
   flatRateAmount: number;
+  flatRateBaseAmount?: number;
   flatRateIncludedHours: number;
   flatRateOverageRate: number;
   hourlyRate: number;
+  additionalHourlyRate?: number;
   driveTimeHourlyRate: number;
   mileageReimbursed: boolean;
   mileageRate: number;
@@ -30,9 +32,11 @@ function toggleButtonClass(active: boolean): string {
 export default function RateConfigSection({
   isFlatRate,
   flatRateAmount,
+  flatRateBaseAmount = 0,
   flatRateIncludedHours,
   flatRateOverageRate,
   hourlyRate,
+  additionalHourlyRate = 0,
   driveTimeHourlyRate,
   mileageReimbursed,
   mileageRate,
@@ -87,8 +91,8 @@ export default function RateConfigSection({
         </div>
       </div>
 
-      {/* Conditional Row 2: Flat Rate or Hourly fields */}
-      {isFlatRate ? (
+      {/* Conditional Row 2: Flat Rate fields */}
+      {isFlatRate && (
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className={labelClass}>Flat Rate Amount ($)</label>
@@ -98,6 +102,17 @@ export default function RateConfigSection({
               step="0.01"
               value={flatRateAmount}
               onChange={(e) => handleNumericChange('flatRateAmount', e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Base Amount ($)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={flatRateBaseAmount}
+              onChange={(e) => handleNumericChange('flatRateBaseAmount', e.target.value)}
               className={inputClass}
             />
           </div>
@@ -124,19 +139,22 @@ export default function RateConfigSection({
             />
           </div>
         </div>
-      ) : (
+      )}
+
+      {/* Row 2b: Hourly Rate fields (always shown; labeled "Additional" when flat rate is also active) */}
+      <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className={labelClass}>Hourly Rate ($/hr)</label>
+          <label className={labelClass}>{isFlatRate ? 'Additional Hourly Rate ($/hr)' : 'Hourly Rate ($/hr)'}</label>
           <input
             type="number"
             min="0"
             step="0.01"
-            value={hourlyRate}
-            onChange={(e) => handleNumericChange('hourlyRate', e.target.value)}
+            value={isFlatRate ? additionalHourlyRate : hourlyRate}
+            onChange={(e) => handleNumericChange(isFlatRate ? 'additionalHourlyRate' : 'hourlyRate', e.target.value)}
             className={inputClass}
           />
         </div>
-      )}
+      </div>
 
       {/* Row 3: Drive Time Rate */}
       <div>

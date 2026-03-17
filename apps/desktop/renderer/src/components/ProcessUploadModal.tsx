@@ -267,7 +267,6 @@ export default function ProcessUploadModal({
                 <label className="flex items-center gap-3 cursor-pointer group select-none">
                   <div
                     className={`luxury-check-orb${isReceipt ? ' checked' : ''}`}
-                    onClick={() => setIsReceipt(v => !v)}
                   >
                     {isReceipt && <Check size={12} className="text-white" />}
                   </div>

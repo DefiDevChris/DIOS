@@ -28,13 +28,16 @@ function buildDefaultRateConfig(): RateConfig {
   return {
     isFlatRate: true,
     flatRateAmount: 0,
+    flatRateBaseAmount: 0,
     flatRateIncludedHours: 0,
     flatRateOverageRate: 0,
     hourlyRate: 0,
+    additionalHourlyRate: 0,
     driveTimeHourlyRate: 0,
     mileageReimbursed: false,
     mileageRate: 0,
     perDiemRate: 0,
+    defaultLineItems: [],
   };
 }
 
@@ -233,7 +236,7 @@ export default function AgencySettingsTab({ agency, onSave, onDelete, isNew }: A
               <div className={`space-y-6 ${!form.perTypeRatesEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
                 {operationTypes.map((typeName) => {
                   const typeRates = ratesByType[typeName] ?? buildDefaultRateConfig();
-                  const typeLineItems: DefaultLineItem[] = (typeRates as RateConfig & { defaultLineItems?: DefaultLineItem[] }).defaultLineItems ?? [];
+                  const typeLineItems: DefaultLineItem[] = typeRates.defaultLineItems ?? [];
                   return (
                     <div key={typeName} className="border border-[rgba(212,165,116,0.15)] rounded-xl p-4 space-y-4">
                       <div className="flex items-center justify-between">

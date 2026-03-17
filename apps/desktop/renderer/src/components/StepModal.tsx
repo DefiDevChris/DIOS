@@ -39,7 +39,8 @@ export default function StepModal({
       setHours(0)
       setChecklist(checklistItems.map((ci) => ({ ...ci })))
     }
-  }, [isOpen, checklistItems])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
 
   if (!isOpen) {
     return null
@@ -66,7 +67,7 @@ export default function StepModal({
 
   return (
     <div className="luxury-modal-backdrop z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="luxury-modal-card rounded-[28px] w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="luxury-modal-card rounded-[28px] w-full max-w-md overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="px-6 py-5 flex justify-between items-center">
           <h2 className="font-serif-display text-2xl font-semibold text-[#2a2420]">
@@ -84,7 +85,7 @@ export default function StepModal({
         <div className="luxury-divider mx-6" />
 
         {/* Body */}
-        <div className="p-6 space-y-5">
+        <div className="p-6 space-y-5 flex-1 overflow-y-auto">
           {showChecklist && (
             <div>
               <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2 font-body">
