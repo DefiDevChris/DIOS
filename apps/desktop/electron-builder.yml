@@ -19,7 +19,7 @@ files:
 # environment variables. These are expected to be configured in CI only.
 publish:
   provider: github
-  owner: chrishoran  # Override via GH_TOKEN in CI
+  owner: DefiDevChris
   repo: DIOS
 
 win:
