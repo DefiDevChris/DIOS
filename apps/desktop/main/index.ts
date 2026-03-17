@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, net } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
+import http from 'http'
 import { findAll, findById, upsert, remove, closeDatabase } from './database.js'
 import { saveFile, readFile, deleteFile, listFiles, getBaseDir } from './fileStorage.js'
 import { startSync, stopSync, getSyncState, getPendingCount } from './syncEngine.js'
@@ -27,6 +28,62 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
 })
 
 let mainWindow: BrowserWindow | null = null
+let localServer: http.Server | null = null
+
+/** Serve the production renderer from a local HTTP server so Firebase OAuth
+ *  works (signInWithPopup requires an http:// origin, not file://). */
+function startLocalServer(staticDir: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const mimeTypes: Record<string, string> = {
+      '.html': 'text/html',
+      '.js': 'application/javascript',
+      '.css': 'text/css',
+      '.json': 'application/json',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.svg': 'image/svg+xml',
+      '.ico': 'image/x-icon',
+      '.woff': 'font/woff',
+      '.woff2': 'font/woff2',
+      '.ttf': 'font/ttf',
+      '.map': 'application/json',
+    }
+
+    const server = http.createServer((req, res) => {
+      const urlPath = (req.url ?? '/').split('?')[0]
+      let filePath = path.join(staticDir, urlPath === '/' ? 'index.html' : urlPath)
+
+      // SPA fallback — serve index.html for any route that isn't a real file
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+        filePath = path.join(staticDir, 'index.html')
+      }
+
+      const ext = path.extname(filePath)
+      const contentType = mimeTypes[ext] || 'application/octet-stream'
+
+      try {
+        const content = fs.readFileSync(filePath)
+        res.writeHead(200, { 'Content-Type': contentType })
+        res.end(content)
+      } catch {
+        res.writeHead(404)
+        res.end('Not Found')
+      }
+    })
+
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address()
+      if (addr && typeof addr === 'object') {
+        resolve(addr.port)
+      } else {
+        reject(new Error('Failed to start local server'))
+      }
+    })
+
+    server.on('error', reject)
+    localServer = server
+  })
+}
 
 // Stored sync config loaded from persistent storage
 let storedSyncConfig: { firestoreToken: string; driveToken: string; userId: string; projectId: string; refreshToken?: string; apiKey?: string } | null = null
@@ -87,7 +144,7 @@ async function initializeStoredConfig(): Promise<void> {
   }
 }
 
-function createWindow(): void {
+async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -105,27 +162,32 @@ function createWindow(): void {
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:3000')
   } else {
-    // In production, dist/ is always at the app root (electron-builder copies it there)
-    const htmlPath = path.join(app.getAppPath(), 'dist', 'index.html')
-    if (fs.existsSync(htmlPath)) {
-      mainWindow.loadFile(htmlPath)
-    } else {
+    // In production, serve via local HTTP server so Firebase OAuth works
+    // (signInWithPopup requires http:// origin, file:// is rejected by Google)
+    let distDir = path.join(app.getAppPath(), 'dist')
+    if (!fs.existsSync(path.join(distDir, 'index.html'))) {
       // Fallback: walk up from __dirname until we find dist/index.html
       let dir = __dirname
-      let found = false
       for (let i = 0; i < 5; i++) {
-        const candidate = path.join(dir, 'dist', 'index.html')
-        if (fs.existsSync(candidate)) {
-          mainWindow.loadFile(candidate)
-          found = true
+        if (fs.existsSync(path.join(dir, 'dist', 'index.html'))) {
+          distDir = path.join(dir, 'dist')
           break
         }
         dir = path.dirname(dir)
       }
-      if (!found) {
-        logger.error('Could not find dist/index.html. App path:', app.getAppPath(), '__dirname:', __dirname)
-        mainWindow.loadURL(`data:text/html,<html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#F9F8F6"><div style="text-align:center"><h1 style="color:#2a2420">DIOS Studio</h1><p style="color:#8b7355">Could not find application files. Please reinstall.</p></div></body></html>`)
+    }
+
+    if (fs.existsSync(path.join(distDir, 'index.html'))) {
+      try {
+        const port = await startLocalServer(distDir)
+        mainWindow.loadURL(`http://localhost:${port}`)
+      } catch (error) {
+        logger.error('Local server failed, falling back to file://', error)
+        mainWindow.loadFile(path.join(distDir, 'index.html'))
       }
+    } else {
+      logger.error('Could not find dist/index.html. App path:', app.getAppPath(), '__dirname:', __dirname)
+      mainWindow.loadURL(`data:text/html,<html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#F9F8F6"><div style="text-align:center"><h1 style="color:#2a2420">DIOS Studio</h1><p style="color:#8b7355">Could not find application files. Please reinstall.</p></div></body></html>`)
     }
   }
 
@@ -327,6 +389,7 @@ ipcMain.handle('sync:pendingCount', () => getPendingCount())
 
 app.on('before-quit', () => {
   closeDatabase()
+  localServer?.close()
 })
 
 // Initialize config before creating window
