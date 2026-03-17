@@ -48,9 +48,12 @@ describe('BusinessProfileTab', () => {
     vi.clearAllMocks()
   })
 
-  it('shows "Loading business profile..." initially', () => {
+  it('shows "Loading business profile..." initially', async () => {
     render(<BusinessProfileTab />)
     expect(screen.getByText('Loading business profile...')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('Business Information')).toBeInTheDocument()
+    })
   })
 
   it('renders "Business Information" heading after load', async () => {

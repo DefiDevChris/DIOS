@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 
 vi.mock('../contexts/AuthContext', () => ({
@@ -63,31 +63,40 @@ describe('Schedule', () => {
     vi.clearAllMocks()
   })
 
-  it('renders the "Schedule" heading', () => {
+  it('renders the "Schedule" heading', async () => {
     render(
       <MemoryRouter>
         <Schedule />
       </MemoryRouter>
     )
     expect(screen.getByText('Schedule')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading schedule...')).not.toBeInTheDocument()
+    })
   })
 
-  it('renders the subtitle text', () => {
+  it('renders the subtitle text', async () => {
     render(
       <MemoryRouter>
         <Schedule />
       </MemoryRouter>
     )
     expect(screen.getByText('Manage your upcoming inspections.')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading schedule...')).not.toBeInTheDocument()
+    })
   })
 
-  it('renders the "Sync with Google Calendar" button', () => {
+  it('renders the "Sync with Google Calendar" button', async () => {
     render(
       <MemoryRouter>
         <Schedule />
       </MemoryRouter>
     )
     expect(screen.getByText('Sync with Google Calendar')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading schedule...')).not.toBeInTheDocument()
+    })
   })
 
   it('renders the Google Calendar iframe when token is present', async () => {

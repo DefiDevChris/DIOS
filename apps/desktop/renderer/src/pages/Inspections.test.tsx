@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 
 vi.mock('../contexts/AuthContext', () => ({
@@ -59,49 +59,64 @@ describe('Inspections', () => {
     vi.clearAllMocks()
   })
 
-  it('renders the "Inspections" heading', () => {
+  it('renders the "Inspections" heading', async () => {
     render(
       <MemoryRouter>
         <Inspections />
       </MemoryRouter>
     )
     expect(screen.getByText('Inspections')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading inspections...')).not.toBeInTheDocument()
+    })
   })
 
-  it('renders the subtitle text', () => {
+  it('renders the subtitle text', async () => {
     render(
       <MemoryRouter>
         <Inspections />
       </MemoryRouter>
     )
     expect(screen.getByText('View and manage all inspection records.')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading inspections...')).not.toBeInTheDocument()
+    })
   })
 
-  it('renders the search input', () => {
+  it('renders the search input', async () => {
     render(
       <MemoryRouter>
         <Inspections />
       </MemoryRouter>
     )
     expect(screen.getByPlaceholderText('Search by operation, scope, or date...')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading inspections...')).not.toBeInTheDocument()
+    })
   })
 
-  it('renders the status filter dropdown', () => {
+  it('renders the status filter dropdown', async () => {
     render(
       <MemoryRouter>
         <Inspections />
       </MemoryRouter>
     )
     expect(screen.getByDisplayValue('All Statuses')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading inspections...')).not.toBeInTheDocument()
+    })
   })
 
-  it('renders the Export button', () => {
+  it('renders the Export button', async () => {
     render(
       <MemoryRouter>
         <Inspections />
       </MemoryRouter>
     )
     expect(screen.getByText('Export')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading inspections...')).not.toBeInTheDocument()
+    })
   })
 
   it('shows empty state when no inspections exist', async () => {

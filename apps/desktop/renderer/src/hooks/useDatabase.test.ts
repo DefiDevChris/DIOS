@@ -144,7 +144,7 @@ describe('useDatabase', () => {
         expect(records).toEqual([])
       })
 
-      it('returns empty array and logs error when IPC findAll throws', async () => {
+      it('throws and logs error when IPC findAll throws', async () => {
         ;(window.electronAPI!.db!.findAll as ReturnType<typeof vi.fn>).mockRejectedValue(
           new Error('IPC error')
         )
@@ -153,12 +153,11 @@ describe('useDatabase', () => {
           useDatabase<TestRecord>({ table: 'items' })
         )
 
-        let records: TestRecord[] = []
-        await act(async () => {
-          records = await result.current.findAll()
-        })
-
-        expect(records).toEqual([])
+        await expect(
+          act(async () => {
+            await result.current.findAll()
+          })
+        ).rejects.toThrow('IPC error')
       })
     })
 
@@ -215,7 +214,7 @@ describe('useDatabase', () => {
         expect(record).toBeNull()
       })
 
-      it('returns null and logs error when IPC findById throws', async () => {
+      it('throws and logs error when IPC findById throws', async () => {
         ;(window.electronAPI!.db!.findById as ReturnType<typeof vi.fn>).mockRejectedValue(
           new Error('fail')
         )
@@ -224,12 +223,11 @@ describe('useDatabase', () => {
           useDatabase<TestRecord>({ table: 'items' })
         )
 
-        let record: TestRecord | null = null
-        await act(async () => {
-          record = await result.current.findById('1')
-        })
-
-        expect(record).toBeNull()
+        await expect(
+          act(async () => {
+            await result.current.findById('1')
+          })
+        ).rejects.toThrow('fail')
       })
     })
 
