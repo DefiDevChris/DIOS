@@ -38,16 +38,20 @@ export async function calculateDistance(
 /**
  * Formats a distance in miles for display (e.g. "12.3 mi").
  */
-export function formatDistance(miles: number): string {
-  return `${miles.toFixed(1)} mi`;
+export function formatDistance(miles: number | string): string {
+  const n = typeof miles === 'number' ? miles : parseFloat(miles);
+  if (isNaN(n)) return '0.0 mi';
+  return `${n.toFixed(1)} mi`;
 }
 
 /**
  * Formats a duration in minutes for display.
  * Returns "X hrs Y min", "X hrs", or "Y min" as appropriate.
  */
-export function formatDriveTime(minutes: number): string {
-  const totalMinutes = Math.round(minutes);
+export function formatDriveTime(minutes: number | string): string {
+  const raw = typeof minutes === 'number' ? minutes : parseFloat(minutes);
+  if (isNaN(raw)) return '0 min';
+  const totalMinutes = Math.round(raw);
   const hrs = Math.floor(totalMinutes / 60);
   const mins = totalMinutes % 60;
 

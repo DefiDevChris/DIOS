@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
@@ -71,7 +71,7 @@ function startLocalServer(staticDir: string): Promise<number> {
       }
     })
 
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(17839, '127.0.0.1', () => {
       const addr = server.address()
       if (addr && typeof addr === 'object') {
         resolve(addr.port)
@@ -190,6 +190,21 @@ async function createWindow(): Promise<void> {
       mainWindow.loadURL(`data:text/html,<html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#F9F8F6"><div style="text-align:center"><h1 style="color:#2a2420">DIOS Studio</h1><p style="color:#8b7355">Could not find application files. Please reinstall.</p></div></body></html>`)
     }
   }
+
+  // Open external URLs (window.open / target="_blank") in the system browser,
+  // but allow Firebase/Google auth popups to open as Electron windows
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (
+      url.startsWith('http://localhost') ||
+      url.includes('accounts.google.com') ||
+      url.includes('firebaseapp.com/__/auth') ||
+      url.includes('googleapis.com/identitytoolkit')
+    ) {
+      return { action: 'allow' }
+    }
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -386,6 +401,58 @@ ipcMain.handle('sync:stop', () => {
 })
 ipcMain.handle('sync:state', () => getSyncState())
 ipcMain.handle('sync:pendingCount', () => getPendingCount())
+
+// Google Places Autocomplete IPC handlers (proxied through main to avoid CORS)
+ipcMain.handle('places:autocomplete', async (_event, input: string) => {
+  const env = loadEnv()
+  const apiKey = env.GOOGLE_MAPS_API_KEY
+  if (!apiKey || !input.trim()) return []
+  try {
+    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input)}&types=address|establishment&components=country:us&key=${apiKey}`
+    const resp = await net.fetch(url)
+    const data = await resp.json()
+    if (data.status === 'OK' && data.predictions) {
+      return data.predictions.map((p: any) => ({
+        placeId: p.place_id,
+        description: p.description,
+      }))
+    }
+    return []
+  } catch (err) {
+    logger.error('Places autocomplete error:', err)
+    return []
+  }
+})
+
+ipcMain.handle('places:details', async (_event, placeId: string) => {
+  const env = loadEnv()
+  const apiKey = env.GOOGLE_MAPS_API_KEY
+  if (!apiKey || !placeId) return null
+  try {
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=formatted_address,geometry,address_components&key=${apiKey}`
+    const resp = await net.fetch(url)
+    const data = await resp.json()
+    if (data.status === 'OK' && data.result) {
+      const components = data.result.address_components || []
+      const get = (type: string) => components.find((c: any) => c.types.includes(type))
+      const streetNumber = get('street_number')?.long_name || ''
+      const route = get('route')?.long_name || ''
+      const streetAddress = [streetNumber, route].filter(Boolean).join(' ')
+      return {
+        address: streetAddress || data.result.formatted_address,
+        city: get('locality')?.long_name || get('sublocality')?.long_name || get('administrative_area_level_2')?.long_name || '',
+        state: get('administrative_area_level_1')?.short_name || '',
+        zipCode: get('postal_code')?.long_name || '',
+        lat: data.result.geometry?.location?.lat,
+        lng: data.result.geometry?.location?.lng,
+      }
+    }
+    return null
+  } catch (err) {
+    logger.error('Places details error:', err)
+    return null
+  }
+})
 
 app.on('before-quit', () => {
   closeDatabase()

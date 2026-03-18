@@ -108,10 +108,12 @@ export default function Email() {
         });
 
         // 3. Fetch custom whitelisted emails from user document (keep Firestore for user doc)
-        const userDocSnap = await getDoc(doc(db, `users/${user.uid}`));
-        if (userDocSnap.exists()) {
-          const whitelisted: string[] = userDocSnap.data().whitelistedEmails || [];
-          whitelisted.forEach(e => emailSet.add(e.trim().toLowerCase()));
+        if (db) {
+          const userDocSnap = await getDoc(doc(db, `users/${user.uid}`));
+          if (userDocSnap.exists()) {
+            const whitelisted: string[] = userDocSnap.data().whitelistedEmails || [];
+            whitelisted.forEach(e => emailSet.add(e.trim().toLowerCase()));
+          }
         }
 
         const emails = Array.from(emailSet);

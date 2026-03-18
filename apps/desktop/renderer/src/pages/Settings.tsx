@@ -131,7 +131,7 @@ export default function Settings() {
 
   // Keep raw Firestore for whitelistedEmails (user doc, not agencies)
   useEffect(() => {
-    if (!user) return;
+    if (!user || !db) return;
     const userDocRef = doc(db, `users/${user.uid}`);
     const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -210,7 +210,7 @@ export default function Settings() {
 
   const handleAddWhitelistedEmail = async () => {
     const email = newEmailInput.trim().toLowerCase();
-    if (!user || !email || whitelistedEmails.includes(email)) return;
+    if (!user || !db || !email || whitelistedEmails.includes(email)) return;
     const userDocRef = doc(db, `users/${user.uid}`);
     try {
       const { setDoc } = await import('firebase/firestore');
@@ -222,7 +222,7 @@ export default function Settings() {
   };
 
   const handleDeleteWhitelistedEmail = async (email: string) => {
-    if (!user) return;
+    if (!user || !db) return;
     const userDocRef = doc(db, `users/${user.uid}`);
     try {
       const { setDoc } = await import('firebase/firestore');

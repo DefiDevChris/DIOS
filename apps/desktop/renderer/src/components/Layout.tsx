@@ -6,7 +6,7 @@ import {
   Search, CheckSquare, Settings, ChevronDown, Plus,
   LayoutDashboard, Building2, ClipboardCheck, FileText, Calendar,
   StickyNote, Mail, Map as MapIcon, BarChart2, LineChart,
-  HardDrive, ExternalLink, Wallet, X
+  HardDrive, ExternalLink, Wallet, X, LogOut, UserPlus, RefreshCw
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import LeafLogo from './LeafLogo'
@@ -281,7 +281,7 @@ export default function Layout() {
           >
             <Settings size={20} />
           </button>
-          <SignOutButton />
+          <AccountMenu />
         </div>
       </header>
 
@@ -472,32 +472,127 @@ export default function Layout() {
 }
 
 // Extracted to avoid calling useAuth hook conditionally inside handleSignOut
-function SignOutButton() {
-  const { user, signOut } = useAuth();
+function AccountMenu() {
+  const { user, isLocalUser, signInWithGoogle, signOut } = useAuth();
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
 
   const handleSignOut = async () => {
-    try {
-      await signOut();
-    } catch (err) {
-      // Ensure navigation happens even if signOut fails
-    }
+    setOpen(false);
+    try { await signOut(); } catch {}
     localStorage.removeItem('dios_onboarding_completed');
     navigate('/login');
   };
 
+  const handleConnect = async () => {
+    setOpen(false);
+    try { await signInWithGoogle(); } catch {}
+  };
+
+  const handleSwitch = async () => {
+    setOpen(false);
+    try { await signOut(); } catch {}
+    try { await signInWithGoogle(); } catch {}
+  };
+
   return (
-    <div className="flex items-center gap-3 pl-4 cursor-pointer" style={{ borderLeft: '1px solid rgba(212, 165, 116, 0.15)' }} onClick={handleSignOut}>
-      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0" style={{
-        background: 'linear-gradient(135deg, #d4a574 0%, #c9956b 100%)',
-        boxShadow: '0 2px 8px rgba(212, 165, 116, 0.3)',
-      }}>
-        {user?.displayName?.charAt(0) || 'U'}
-      </div>
-      <div className="hidden sm:block text-left">
-        <div className="text-sm font-bold text-[#2a2420] leading-tight">{user?.displayName || 'User'}</div>
-        <div className="text-[10px] text-[#a89b8c] leading-tight">Administrator</div>
-      </div>
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen(prev => !prev)}
+        className="flex items-center gap-3 pl-4 cursor-pointer hover:opacity-80 transition-opacity"
+        style={{ borderLeft: '1px solid rgba(212, 165, 116, 0.15)' }}
+      >
+        {user?.photoURL ? (
+          <img
+            src={user.photoURL}
+            alt={user.displayName || 'User'}
+            className="w-8 h-8 rounded-full shrink-0 object-cover"
+            referrerPolicy="no-referrer"
+            style={{ boxShadow: '0 2px 8px rgba(212, 165, 116, 0.3)' }}
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0" style={{
+            background: 'linear-gradient(135deg, #d4a574 0%, #c9956b 100%)',
+            boxShadow: '0 2px 8px rgba(212, 165, 116, 0.3)',
+          }}>
+            {user?.displayName?.charAt(0) || 'U'}
+          </div>
+        )}
+        <div className="hidden sm:block text-left">
+          <div className="text-sm font-bold text-[#2a2420] leading-tight">{user?.displayName || 'Local User'}</div>
+          <div className="text-[10px] text-[#a89b8c] leading-tight">{user?.email || 'Not connected'}</div>
+        </div>
+        <ChevronDown size={14} className={`text-[#a89b8c] transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-64 rounded-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150" style={{
+          background: 'rgba(255,255,255,0.95)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(212, 165, 116, 0.15)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04)',
+        }}>
+          {/* Account info header */}
+          <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(212, 165, 116, 0.1)' }}>
+            <div className="flex items-center gap-3">
+              {user?.photoURL ? (
+                <img src={user.photoURL} alt="" className="w-10 h-10 rounded-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{
+                  background: 'linear-gradient(135deg, #d4a574 0%, #c9956b 100%)',
+                }}>
+                  {user?.displayName?.charAt(0) || 'U'}
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-[#2a2420] truncate">{user?.displayName || 'Local User'}</div>
+                <div className="text-xs text-[#a89b8c] truncate">{user?.email || 'No account connected'}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Menu items */}
+          <div className="py-1.5">
+            {isLocalUser ? (
+              <button
+                onClick={handleConnect}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-[#4a4038] hover:bg-[rgba(212,165,116,0.06)] transition-colors text-left"
+              >
+                <UserPlus size={16} className="text-[#d4a574]" />
+                Connect Google Account
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleSwitch}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-[#4a4038] hover:bg-[rgba(212,165,116,0.06)] transition-colors text-left"
+                >
+                  <RefreshCw size={16} className="text-[#a89b8c]" />
+                  Switch Account
+                </button>
+                <button
+                  onClick={handleSignOut}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
+                >
+                  <LogOut size={16} />
+                  Sign Out
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

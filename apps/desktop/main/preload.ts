@@ -61,6 +61,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('env:path'),
   },
 
+  // Google Places API (proxied through main for CORS)
+  places: {
+    autocomplete: (input: string): Promise<Array<{ placeId: string; description: string }>> =>
+      ipcRenderer.invoke('places:autocomplete', input),
+    details: (placeId: string): Promise<{ address: string; city: string; state: string; zipCode: string; lat: number; lng: number } | null> =>
+      ipcRenderer.invoke('places:details', placeId),
+  },
+
   // Config bridge (renderer -> main)
   config: {
     setSyncConfig: (config: { firestoreToken: string; driveToken: string; userId: string; projectId: string; refreshToken?: string; apiKey?: string }): Promise<{ success: boolean }> =>

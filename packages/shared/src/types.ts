@@ -50,6 +50,9 @@ export interface Operation {
   name: string
   agencyId: string
   address: string
+  city: string
+  state: string
+  zipCode: string
   contactName: string
   phone: string
   email: string

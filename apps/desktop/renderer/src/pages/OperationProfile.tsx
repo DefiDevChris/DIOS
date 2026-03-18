@@ -633,7 +633,7 @@ export default function OperationProfile() {
             >
               <Navigation size={16} /> Nearby
             </button>
-            {operation.cachedDistanceMiles != null && (
+            {operation.cachedDistanceMiles != null && operation.cachedDistanceMiles !== '' && (
               <div className="px-3 py-2 bg-[rgba(212,165,116,0.04)] border border-[rgba(212,165,116,0.15)] rounded-xl text-sm font-medium text-[#4a4038]">
                 {formatDistance(operation.cachedDistanceMiles)} &middot;{' '}
                 {formatDriveTime(operation.cachedDriveTimeMinutes || 0)}

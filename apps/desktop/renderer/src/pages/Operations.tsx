@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { logger } from '@dios/shared';
-import { geocodeAddress } from '../utils/geocodingUtils';
+import { geocodeAddress, geocodeMissingOperations } from '../utils/geocodingUtils';
+import AddressAutocomplete from '../components/AddressAutocomplete';
 import { ensureOperationFolder } from '../lib/driveSync';
 import { Plus, Edit2, Trash2, Building2, MapPin, Phone, Mail, Search, X, Briefcase, ChevronRight, Upload } from 'lucide-react';
 import Papa from 'papaparse';
@@ -21,6 +22,9 @@ interface LocalOperation {
   id: string;
   name: string;
   address: string;
+  city: string;
+  state: string;
+  zipCode: string;
   contactName: string;
   phone: string;
   email: string;
@@ -65,10 +69,16 @@ export default function Operations() {
   });
   const [importAgencyId, setImportAgencyId] = useState('');
 
+  // Coordinates from Places autocomplete selection
+  const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number } | null>(null);
+
   // Form State
   const [formData, setFormData] = useState({
     name: '',
     address: '',
+    city: '',
+    state: '',
+    zipCode: '',
     contactName: '',
     phone: '',
     email: '',
@@ -100,6 +110,9 @@ export default function Operations() {
           id: op.id,
           name: op.name,
           address: op.address,
+          city: op.city || '',
+          state: op.state || '',
+          zipCode: op.zipCode || '',
           contactName: op.contactName,
           phone: op.phone,
           email: op.email,
@@ -109,6 +122,18 @@ export default function Operations() {
           status: op.status,
           notes: op.notes || '',
         })));
+        // Background-geocode any operations missing coordinates
+        const missing = opsData.filter(op => op.address && (op.lat == null || op.lng == null));
+        if (missing.length > 0) {
+          geocodeMissingOperations('', missing).then(results => {
+            for (const r of results) {
+              saveOperation({ id: r.id, lat: r.lat, lng: r.lng } as Operation).catch(err =>
+                logger.error('Failed to save geocoded coordinates:', err)
+              );
+            }
+          }).catch(err => logger.error('Background geocoding failed:', err));
+        }
+
       } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'operations');
       } finally {
@@ -134,6 +159,9 @@ export default function Operations() {
       setFormData({
         name: op.name,
         address: op.address,
+        city: op.city || '',
+        state: op.state || '',
+        zipCode: op.zipCode || '',
         contactName: op.contactName,
         phone: op.phone,
         email: op.email,
@@ -148,6 +176,9 @@ export default function Operations() {
       setFormData({
         name: '',
         address: '',
+        city: '',
+        state: '',
+        zipCode: '',
         contactName: '',
         phone: '',
         email: '',
@@ -158,12 +189,14 @@ export default function Operations() {
         notes: '',
       });
     }
+    setSelectedCoords(null);
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingOp(null);
+    setSelectedCoords(null);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -183,6 +216,8 @@ export default function Operations() {
     const opData: Operation = {
       id: opId,
       ...formData,
+      // Use coordinates from Places selection if available
+      ...(selectedCoords ? { lat: selectedCoords.lat, lng: selectedCoords.lng } : {}),
       updatedAt: new Date().toISOString(),
       syncStatus: 'pending',
     };
@@ -190,6 +225,7 @@ export default function Operations() {
     try {
       await saveOperation(opData);
       handleCloseModal();
+      setSelectedCoords(null);
 
       // Refresh operations list
       const updatedOps = await findAllOperations();
@@ -207,9 +243,8 @@ export default function Operations() {
         notes: op.notes || '',
       })));
 
-      // Fire-and-forget background geocoding whenever an address is present
-      // and coordinates are not yet stored (new op) or address may have changed.
-      if (opData.address && (!editingOp || editingOp.address !== opData.address)) {
+      // Fall back to Nominatim geocoding if no Places coordinates and address changed
+      if (!selectedCoords && opData.address && (!editingOp || editingOp.address !== opData.address)) {
         geocodeAddress(opData.address).then(coords => {
           if (coords) {
             saveOperation({ ...opData, lat: coords.lat, lng: coords.lng }).catch(err =>
@@ -335,6 +370,18 @@ export default function Operations() {
         notes: op.notes || '',
       })));
       
+      // Background-geocode imported operations that have an address
+      const imported = updatedOps.filter(op => op.address && (op.lat == null || op.lng == null));
+      if (imported.length > 0) {
+        geocodeMissingOperations('', imported).then(results => {
+          for (const r of results) {
+            saveOperation({ id: r.id, lat: r.lat, lng: r.lng } as Operation).catch(err =>
+              logger.error('Failed to save geocoded coordinates:', err)
+            );
+          }
+        }).catch(err => logger.error('Background geocoding of imports failed:', err));
+      }
+
       setIsImportModalOpen(false);
       setImportData([]);
       setImportHeaders([]);
@@ -345,11 +392,14 @@ export default function Operations() {
     }
   };
 
-  const filteredOperations = operations.filter(op => 
-    op.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    op.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    op.address.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredOperations = operations.filter(op => {
+    const term = searchTerm.toLowerCase();
+    return op.name.toLowerCase().includes(term) ||
+      op.contactName.toLowerCase().includes(term) ||
+      op.address.toLowerCase().includes(term) ||
+      op.city.toLowerCase().includes(term) ||
+      op.state.toLowerCase().includes(term);
+  });
 
   const getAgencyName = (agencyId: string) => {
     return agencies.find(a => a.id === agencyId)?.name || 'Unknown Agency';
@@ -603,15 +653,59 @@ export default function Operations() {
                   </div>
 
                   <div className="sm:col-span-2">
-                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">Address</label>
-                    <input 
-                      type="text" 
-                      name="address"
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">Street Address</label>
+                    <AddressAutocomplete
                       value={formData.address}
+                      onChange={(address) => setFormData(prev => ({ ...prev, address }))}
+                      onPlaceSelected={(result) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          address: result.address,
+                          city: result.city,
+                          state: result.state,
+                          zipCode: result.zipCode,
+                        }));
+                        setSelectedCoords({ lat: result.lat, lng: result.lng });
+                      }}
+                      className="w-full luxury-input rounded-2xl px-4 py-3 text-sm outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">City</label>
+                    <input
+                      type="text"
+                      name="city"
+                      value={formData.city}
                       onChange={handleChange}
                       className="w-full luxury-input rounded-2xl px-4 py-3 text-sm outline-none"
-                      placeholder="123 Farm Road, City, State ZIP"
+                      placeholder="City"
                     />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">State</label>
+                      <input
+                        type="text"
+                        name="state"
+                        value={formData.state}
+                        onChange={handleChange}
+                        className="w-full luxury-input rounded-2xl px-4 py-3 text-sm outline-none"
+                        placeholder="WI"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-[#8b7355] uppercase tracking-wider mb-2">Zip Code</label>
+                      <input
+                        type="text"
+                        name="zipCode"
+                        value={formData.zipCode}
+                        onChange={handleChange}
+                        className="w-full luxury-input rounded-2xl px-4 py-3 text-sm outline-none"
+                        placeholder="54665"
+                      />
+                    </div>
                   </div>
 
                   <div>

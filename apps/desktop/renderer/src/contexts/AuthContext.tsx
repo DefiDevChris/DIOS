@@ -195,16 +195,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     let resolved = false;
+    let autoSignInAttempted = false;
 
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       resolved = true;
-      const effectiveUser = currentUser ?? localUser;
-      setUser(effectiveUser);
-      setIsLocalUser(!currentUser);
-      setLoading(false);
+      if (currentUser) {
+        setUser(currentUser);
+        setIsLocalUser(false);
+        setLoading(false);
+      } else if (!autoSignInAttempted && isElectron() && window.electronAPI?.config) {
+        // No persisted session — check if we have a stored sync config and auto-sign-in
+        autoSignInAttempted = true;
+        try {
+          const storedConfig = await window.electronAPI.config.getSyncConfig();
+          if (storedConfig?.refreshToken && storedConfig?.apiKey) {
+            // Use Firebase REST API to exchange refresh token for a custom token
+            const res = await fetch(
+              `https://securetoken.googleapis.com/v1/token?key=${storedConfig.apiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(storedConfig.refreshToken)}`,
+              }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              if (data.id_token) {
+                // Sign in with the refreshed credential
+                const { signInWithCredential, GoogleAuthProvider: GAP } = await import('firebase/auth');
+                const credential = GAP.credential(data.id_token);
+                const result = await signInWithCredential(auth!, credential);
+                // Session is now restored — onAuthStateChanged will fire again with the user
+                if (data.access_token) {
+                  storeToken(data.access_token, Number(data.expires_in) || 3600);
+                }
+                logger.info('Auto-restored Google session for user:', result.user.uid);
+                return; // onAuthStateChanged will re-fire with the signed-in user
+              }
+            }
+          }
+        } catch (err) {
+          logger.error('Auto sign-in from stored config failed:', err);
+        }
+        // If auto-restore failed, fall back to local user
+        setUser(localUser);
+        setIsLocalUser(true);
+        setLoading(false);
+      } else {
+        setUser(localUser);
+        setIsLocalUser(true);
+        setLoading(false);
+      }
     });
 
-    // If onAuthStateChanged doesn't fire within 2s (e.g. unreachable auth server),
+    // If onAuthStateChanged doesn't fire within 4s (e.g. unreachable auth server),
     // fall back to local user so the app doesn't hang
     const timeout = setTimeout(() => {
       if (!resolved) {
@@ -212,13 +256,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLocalUser(true);
         setLoading(false);
       }
-    }, 2000);
+    }, 4000);
 
     return () => {
       unsubscribe();
       clearTimeout(timeout);
     };
-  }, []);
+  }, [storeToken]);
 
   /**
    * Trigger the GIS TokenClient to obtain a fresh Google OAuth access token.

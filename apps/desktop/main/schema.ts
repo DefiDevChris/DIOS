@@ -249,6 +249,9 @@ export function migrateSchema(db: Database.Database): void {
   safeAddColumn(db, 'operations', 'clientId', "TEXT NOT NULL DEFAULT ''")
   safeAddColumn(db, 'operations', 'cachedDistanceMiles', "REAL DEFAULT NULL")
   safeAddColumn(db, 'operations', 'cachedDriveTimeMinutes', "REAL DEFAULT NULL")
+  safeAddColumn(db, 'operations', 'city', "TEXT NOT NULL DEFAULT ''")
+  safeAddColumn(db, 'operations', 'state', "TEXT NOT NULL DEFAULT ''")
+  safeAddColumn(db, 'operations', 'zipCode', "TEXT NOT NULL DEFAULT ''")
 
   // --- inspections new columns ---
   safeAddColumn(db, 'inspections', 'prepHours', "REAL NOT NULL DEFAULT 0")

@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { BackgroundSyncProvider } from './contexts/BackgroundSyncContext'
 import Layout from './components/Layout'
 import { configStore } from '@dios/shared'
+import { initializeFirebase } from '@dios/shared/firebase'
 import { useState, useEffect, Suspense, lazy } from 'react'
 import SetupWizard from './components/SetupWizard'
 import ErrorBoundary, { useGlobalErrorHandler } from './components/ErrorBoundary'
@@ -143,6 +144,7 @@ export default function App() {
         ...(envVars.GOOGLE_OAUTH_CLIENT_ID ? { googleOAuthClientId: envVars.GOOGLE_OAUTH_CLIENT_ID } : {}),
       }
       configStore.saveConfig(config)
+      initializeFirebase(config.firebaseConfig)
       setHasConfig(true)
     }).catch(() => {})
   }, [])
